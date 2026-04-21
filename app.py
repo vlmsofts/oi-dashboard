@@ -68,6 +68,7 @@ def load_data():
                     'open_int':     int(r['open_int'])  if r.get('open_int') else None,
                     'oi_chg':       int(r['oi_chg'])    if r.get('oi_chg')   else None,
                     'first_notice': r.get('first_notice', ''),
+                    'last_trade':   r.get('last_trade',   ''),
                 }
             except Exception:
                 continue
@@ -119,6 +120,7 @@ def load_data():
                     'open_int':     r['open_int'],
                     'oi_chg':       r['oi_chg'],
                     'first_notice': r.get('first_notice', ''),
+                    'last_trade':   r.get('last_trade',   ''),
                 })
 
         for tk in tickers:
@@ -171,7 +173,8 @@ def load_data():
         daily_agg_inline = {d: daily_agg[d] for d in cutoff_5y}
 
         comm_data[comm] = {
-            'tickers':       {tk: tickers[tk] for tk in ordered},
+            'tickers':       {tk: {k: v for k, v in tickers[tk].items() if k != 'history'}
+                              for tk in ordered},
             'ordered':       ordered,
             'agg_oi':        agg_oi,
             'agg_chg':       agg_chg,
