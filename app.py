@@ -16,20 +16,34 @@ app    = Flask(__name__)
 server = app
 
 # ── Contract code -> human label  (CTK6 -> "MAY 26") ────────────────────────────
-_MC = {'F':'JAN','G':'FEB','H':'MAR','J':'APR','K':'MAY','M':'JUN',
-       'N':'JUL','Q':'AUG','U':'SEP','V':'OCT','X':'NOV','Z':'DEC'}
+_MC_OLD = {'F':'JAN','G':'FEB','H':'MAR','J':'APR','K':'MAY','M':'JUN',
+           'N':'JUL','Q':'AUG','U':'SEP','V':'OCT','X':'NOV','Z':'DEC'}
+_MONTHS_LIST = ['DEC','NOV','OCT','SEP','AUG','JUL','JUN','MAY','APR','MAR','FEB','JAN']
 
 def contract_label(code):
+    """
+    Handles two formats:
+      Generic monthly: CTDEC1 -> 'DEC 1', CTJUL2 -> 'JUL 2'
+      Specific contract: CTZ26 -> 'DEC 26', CTN16 -> 'JUL 16'
+    """
     if not code or len(code) < 3:
         return code or '—'
     code = code.strip().upper()
+    # New format: 2-char commodity + 3-char month + slot digit (1 or 2)
+    for comm in ('CT', 'SB', 'KC', 'CC'):
+        if code.startswith(comm):
+            rest = code[len(comm):]
+            for mo in _MONTHS_LIST:
+                if rest == mo + '1': return f'{mo} 1'
+                if rest == mo + '2': return f'{mo} 2'
+    # Old specific format: CTZ26, CTK6, SBN26 etc
     try:
         i = len(code) - 1
-        while i >= 0 and code[i].isdigit():
-            i -= 1
-        mo  = _MC.get(code[i], '???')
-        yr  = int(code[i+1:])
-        fy  = (2020 + yr) if yr < 20 else (2000 + yr) if yr < 100 else yr
+        while i >= 0 and code[i].isdigit(): i -= 1
+        mo  = _MC_OLD.get(code[i], '???')
+        yr_str = code[i+1:]
+        yr  = int(yr_str)
+        fy  = 2000 + yr if len(yr_str) == 2 else 2020 + yr if yr <= 9 else 2010 + yr
         return f'{mo} {str(fy)[2:]}'
     except Exception:
         return code
@@ -66,10 +80,14 @@ def load_data():
     today_dt  = datetime.strptime(last_date, '%Y-%m-%d')
 
     TICKER_ORDER = {
-        'CT': ['CT1 Comdty','CT2 Comdty','CT3 Comdty','CT4 Comdty','CT5 Comdty','CT6 Comdty','CT7 Comdty'],
-        'SB': ['SB1 Comdty','SB2 Comdty','SB3 Comdty','SB4 Comdty','SB5 Comdty'],
-        'KC': ['KC1 Comdty','KC2 Comdty','KC3 Comdty','KC4 Comdty','KC5 Comdty'],
-        'CC': ['CC1 Comdty','CC2 Comdty','CC3 Comdty','CC4 Comdty','CC5 Comdty'],
+        'CT': ['CTMAY1 Comdty','CTJUL1 Comdty','CTOCT1 Comdty','CTDEC1 Comdty','CTMAR1 Comdty',
+               'CTMAY2 Comdty','CTJUL2 Comdty','CTOCT2 Comdty','CTDEC2 Comdty','CTMAR2 Comdty'],
+        'SB': ['SBMAY1 Comdty','SBJUL1 Comdty','SBOCT1 Comdty','SBMAR1 Comdty',
+               'SBMAY2 Comdty','SBJUL2 Comdty','SBOCT2 Comdty','SBMAR2 Comdty'],
+        'KC': ['KCMAY1 Comdty','KCJUL1 Comdty','KCSEP1 Comdty','KCDEC1 Comdty','KCMAR1 Comdty',
+               'KCMAY2 Comdty','KCJUL2 Comdty','KCSEP2 Comdty','KCDEC2 Comdty','KCMAR2 Comdty'],
+        'CC': ['CCMAY1 Comdty','CCJUL1 Comdty','CCSEP1 Comdty','CCDEC1 Comdty','CCMAR1 Comdty',
+               'CCMAY2 Comdty','CCJUL2 Comdty','CCSEP2 Comdty','CCDEC2 Comdty','CCMAR2 Comdty'],
     }
 
     comm_data = {}
