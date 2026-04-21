@@ -2,7 +2,7 @@
 # Run:  python app.py   ->  http://127.0.0.1:8052
 # Production: gunicorn entry point is  app:server
 
-__version__ = "2026.04.21-oi-v5"
+__version__ = "2026.04.21-oi-v6"
 import sys; sys.dont_write_bytecode = True
 import json, pathlib, csv
 from datetime import datetime
@@ -97,6 +97,12 @@ def load_data():
         if not comm_rows:
             continue
 
+        def tk_yr_range(tk_history, years):
+            cutoff = today_dt.toordinal() - int(365 * years)
+            vals = [h['open_int'] for h in tk_history
+                    if h['open_int'] and datetime.strptime(h['date'],'%Y-%m-%d').toordinal() >= cutoff]
+            return (min(vals), max(vals)) if vals else (0, 0)
+
         tickers = {}
         for r in comm_rows:
             tk = r['bbg_ticker']
@@ -122,9 +128,16 @@ def load_data():
                     'first_notice': r.get('first_notice', ''),
                     'last_trade':   r.get('last_trade',   ''),
                 })
+            tickers[tk]['last_row_first_notice'] = r.get('first_notice','') or tickers[tk].get('last_row_first_notice','')
 
         for tk in tickers:
             tickers[tk]['history'].sort(key=lambda x: x['date'])
+            tlo5, thi5   = tk_yr_range(tickers[tk]['history'], 5)
+            tlo15, thi15 = tk_yr_range(tickers[tk]['history'], 15)
+            tickers[tk]['tk_lo5']  = tlo5
+            tickers[tk]['tk_hi5']  = thi5
+            tickers[tk]['tk_lo15'] = tlo15
+            tickers[tk]['tk_hi15'] = thi15
 
         ordered = [tk for tk in TICKER_ORDER.get(comm, []) if tk in tickers]
         ordered += [tk for tk in tickers if tk not in ordered]
@@ -140,13 +153,14 @@ def load_data():
                 daily_agg[r['date']] += r['open_int']
         sorted_dates = sorted(daily_agg.keys())
 
-        def yr_range(years):
+        def yr_range_agg(years):
             vals = [daily_agg[d] for d in sorted_dates
                     if (today_dt - datetime.strptime(d, '%Y-%m-%d')).days <= 365*years]
             return (min(vals), max(vals)) if vals else (0, 0)
 
-        lo5,  hi5  = yr_range(5)
-        lo15, hi15 = yr_range(15)
+        # Aggregate ranges for sparkline display
+        lo5,  hi5  = yr_range_agg(5)
+        lo15, hi15 = yr_range_agg(15)
         sparkline  = [daily_agg[d] for d in sorted_dates[-252:]]
 
         if sorted_dates:
@@ -630,7 +644,7 @@ function makeSpark(sparkData, val, lo5, hi5, lo15, hi15, color) {
 
   // Pct vs hi5
   var vsHi5 = hi5 ? ((val/hi5-1)*100).toFixed(1) : '—';
-  var tipTxt = 'Now: ' + f0(val) + ' | 5yr Hi: ' + f0(hi5) + ' | vs 5yr Hi: ' + vsHi5 + '% | 15yr Hi: ' + f0(hi15);
+  var tipTxt = 'Now: ' + f0(val) + ' | 5yr Hi: ' + f0(hi5) + ' | 5yr Lo: ' + f0(lo5) + ' | vs 5yr Hi: ' + vsHi5 + '% | 15yr Hi: ' + f0(hi15) + ' | 15yr Lo: ' + f0(lo15);
 
   return '<div class="spark-wrap" data-tip="' + tipTxt + '" onmouseenter="showTip(event,this.dataset.tip)" onmouseleave="hideTip()">'
     + '<svg width="100%" height="28" viewBox="0 0 ' + (W+PAD*2) + ' ' + (H+PAD*2) + '" preserveAspectRatio="none">'
@@ -677,14 +691,23 @@ function buildMonitor() {
     var cd2 = DATA.commodities[comm2];
     var tkLbl2 = tkKey2.replace(' Comdty','');
     // Use full history from HIST cache if available, else fall back to inline
-    var fullH = (HIST[comm2] && HIST[comm2].ticker_history && HIST[comm2].ticker_history[tkLbl2])
-                ? HIST[comm2].ticker_history[tkLbl2]
-                : (cd2 && cd2.tickers[tkKey2] ? cd2.tickers[tkKey2].history : []);
-    var r5  = tkRange(fullH, 5);
-    var r15 = tkRange(fullH, 15);
+    // Use stored per-ticker ranges if available (instant, no history needed)
+    var td2 = cd2 && cd2.tickers[tkKey2] ? cd2.tickers[tkKey2] : {};
+    var lo5t  = td2.tk_lo5  || null;
+    var hi5t  = td2.tk_hi5  || null;
+    var lo15t = td2.tk_lo15 || null;
+    var hi15t = td2.tk_hi15 || null;
+    // Fall back to full history if stored ranges not available
+    if (!hi5t) {
+      var fullH = (HIST[comm2] && HIST[comm2].ticker_history && HIST[comm2].ticker_history[tkLbl2])
+                  ? HIST[comm2].ticker_history[tkLbl2] : [];
+      var r5  = tkRange(fullH, 5);
+      var r15 = tkRange(fullH, 15);
+      lo5t = r5.lo; hi5t = r5.hi; lo15t = r15.lo; hi15t = r15.hi;
+    }
     var tip = 'Now: ' + f0(+oi)
-            + ' | 5yr Hi: '  + f0(r5.hi)  + ' | 5yr Lo: '  + f0(r5.lo)
-            + ' | 15yr Hi: ' + f0(r15.hi) + ' | 15yr Lo: ' + f0(r15.lo);
+            + ' | 5yr Hi: '  + f0(hi5t)  + ' | 5yr Lo: '  + f0(lo5t)
+            + ' | 15yr Hi: ' + f0(hi15t) + ' | 15yr Lo: ' + f0(lo15t);
     showTip(e, tip);
   });
   body.addEventListener('mouseout', function(e) {
@@ -748,11 +771,11 @@ function buildMonitor() {
           + '<div class="c ' + ((td.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(td.oi_chg) + '</div>'
           + '<div class="c" style="color:' + ((td.oi_chg||0)>=0?'var(--grn)':'var(--red)') + ';">' + fp(td.settle) + '</div>'
           + '<div class="c vlm-muted">' + f0(cd.agg_oi) + '</div>'
-          + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color) + '</div>'
-          + '<div class="c vlm-muted">' + f0(cd.lo5) + '</div>'
-          + '<div class="c" style="color:var(--red);">' + f0(cd.hi5) + '</div>'
-          + '<div class="c vlm-muted">' + f0(cd.lo15) + '</div>'
-          + '<div class="c vlm-muted">' + f0(cd.hi15) + '</div>'
+          + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color) + '</div>'
+          + '<div class="c vlm-muted">' + f0(td.tk_lo5||cd.lo5) + '</div>'
+          + '<div class="c" style="color:var(--red);">' + f0(td.tk_hi5||cd.hi5) + '</div>'
+          + '<div class="c vlm-muted">' + f0(td.tk_lo15||cd.lo15) + '</div>'
+          + '<div class="c vlm-muted">' + f0(td.tk_hi15||cd.hi15) + '</div>'
           + '<div class="c fn">' + (td.first_notice || '—') + '</div>';
 
         cr.addEventListener('click', function(e) {
@@ -934,11 +957,15 @@ function populateSeasContract() {
   var prev = sel.value;
   sel.innerHTML = '<option value="Aggregate">AGGREGATE</option>';
   var tblSeqLabels = buildContractLabels(cd);
+  // In stacked mode, show contract slot labels (MAY 1, JUL 1 etc)
+  // which map to each commodity's own front May/Jul contract
   (cd.ordered || []).forEach(function(tk) {
     var lbl = tk.replace(' Comdty', '');
+    // Extract slot label e.g. "MAY 1" from CTMAY1 -> "MAY 1"
+    var slotLbl = tblSeqLabels[tk] || lbl;
     var opt = document.createElement('option');
-    opt.value = lbl;
-    opt.textContent = tblSeqLabels[tk] || lbl;   // e.g. "MAY 1", "MAY 2"
+    opt.value = slotLbl;   // store slot label as value e.g. "MAY 1"
+    opt.textContent = slotLbl;
     sel.appendChild(opt);
   });
   if ([].slice.call(sel.options).some(function(o){ return o.value===prev; })) sel.value = prev;
@@ -965,7 +992,13 @@ function getSeasHist(comm) {
   var th  = src ? src.ticker_history : DATA.commodities[comm].ticker_history;
   if (contractSel === 'Aggregate')
     return Object.entries(agg).map(function(e){ return {date:e[0], open_int:e[1]}; });
-  return (th || {})[contractSel] || [];
+  // contractSel is a slot label like "MAY 1" — map to this commodity's ticker
+  // e.g. CT+"MAY 1" -> "CTMAY1", SB+"MAY 1" -> "SBMAY1"
+  var slotMap = {'MAR 1':'MAR1','MAY 1':'MAY1','JUL 1':'JUL1','OCT 1':'OCT1','DEC 1':'DEC1','SEP 1':'SEP1',
+                 'MAR 2':'MAR2','MAY 2':'MAY2','JUL 2':'JUL2','OCT 2':'OCT2','DEC 2':'DEC2','SEP 2':'SEP2'};
+  var slot = slotMap[contractSel];
+  var tkKey = slot ? comm + slot : contractSel;
+  return (th || {})[tkKey] || [];
 }
 
 function computeBand(hist, curYear) {
