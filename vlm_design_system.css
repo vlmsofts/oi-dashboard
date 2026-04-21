@@ -1,0 +1,445 @@
+/* ============================================================
+   VLM COMMODITIES — Design System CSS  v1.0  April 2026
+   
+   Use this file to keep all VLM dashboards visually consistent.
+   Covers colors, typography, spacing, tables, badges, controls.
+   
+   HOW TO USE:
+     HTML/Flask dashboards:  <link rel="stylesheet" href="vlm_design_system.css">
+     Plotly/Dash dashboards: reference the token values below in your P{} dict
+   ============================================================ */
+
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── CSS Color Tokens — Dark Mode (default) ──────────────────────────────── */
+:root {
+
+  /* Backgrounds */
+  --bg:       #080b0f;   /* page background */
+  --surf:     #0f1520;   /* card / panel surface */
+  --surf2:    #161e2a;   /* inset surface (controls, sparkcard) */
+  --hdr:      #0a1118;   /* topbar / table header rows */
+
+  /* Borders */
+  --bord:     #2a3548;   /* standard border */
+  --bord2:    #334155;   /* stronger border (section dividers) */
+
+  /* Text */
+  --text:     #f8fafc;   /* primary text — positions, numbers */
+  --dim:      #cbd5e1;   /* secondary text — labels, section headers */
+  --muted:    #94a3b8;   /* tertiary text — traders, metadata */
+
+  /* Semantic colors */
+  --grn:      #22c55e;   /* long / positive / bullish */
+  --red:      #ef4444;   /* short / negative / bearish */
+  --spread:   #c084fc;   /* spreading positions */
+  --blue:     #93c5fd;   /* category headers */
+  --gold:     #E8C547;   /* accent / Cotton commodity color */
+
+  /* Commodity colors */
+  --cotton:   #E8C547;
+  --sugar:    #E07B54;
+  --coffee:   #C8956D;
+  --cocoa:    #A07855;
+
+  /* Accent (active state) */
+  --acc:      #E8C547;
+}
+
+/* ── Light Mode overrides ─────────────────────────────────────────────────── */
+body.light {
+  --bg:       #f0f2f5;
+  --surf:     #ffffff;
+  --surf2:    #f4f6f8;
+  --hdr:      #e8edf2;
+  --bord:     #c8d4e0;
+  --bord2:    #b0bfd0;
+  --text:     #1a202c;
+  --dim:      #2d3748;
+  --muted:    #4a5568;
+  --grn:      #15803d;
+  --red:      #b91c1c;
+  --spread:   #7e22ce;
+  --blue:     #1e40af;
+  --gold:     #92680a;
+  --acc:      #92680a;
+}
+
+/* ── Plotly/Dash P{} palette reference (Python dict — copy into crop_app.py)
+   P = dict(
+     bg      = '#080b0f',    # --bg
+     panel   = '#0f1520',    # --surf
+     border  = '#2a3548',    # --bord
+     text    = '#f8fafc',    # --text
+     sub     = '#94a3b8',    # --muted
+     muted   = '#94a3b8',    # --muted
+     red     = '#ef4444',    # --red
+     amber   = '#E8C547',    # --gold
+     blue    = '#93c5fd',    # --blue
+     green   = '#22c55e',    # --grn
+     purple  = '#c084fc',    # --spread
+     teal    = '#22c55e',    # --grn
+   )
+──────────────────────────────────────────────────────────────────────────── */
+
+/* ── Base typography ─────────────────────────────────────────────────────── */
+body {
+  background:  var(--bg);
+  color:       var(--text);
+  font-family: 'Courier New', Courier, monospace;
+  font-size:   13px;
+  min-height:  100vh;
+}
+
+/* ── Topbar ───────────────────────────────────────────────────────────────── */
+.vlm-topbar {
+  background:    var(--hdr);
+  border-bottom: 1px solid var(--bord);
+  padding:       10px 20px;
+  display:       flex;
+  align-items:   center;
+  justify-content: space-between;
+  position:      sticky;
+  top: 0;
+  z-index: 100;
+}
+.vlm-logo {
+  font-size:      20px;
+  font-weight:    700;
+  letter-spacing: 3px;
+  color:          var(--text);
+}
+.vlm-logo-sub {
+  font-size:      11px;
+  color:          var(--muted);
+  letter-spacing: 2px;
+}
+.vlm-topbar-meta {
+  font-size:  11px;
+  color:      var(--muted);
+  display:    flex;
+  align-items: center;
+  gap: 10px;
+}
+.vlm-asof    { font-size: 12px; color: var(--dim); }
+.vlm-dot     { width: 7px; height: 7px; background: var(--grn); border-radius: 50%; }
+
+/* ── Theme toggle button ─────────────────────────────────────────────────── */
+.vlm-theme-btn {
+  background:     none;
+  border:         1px solid var(--bord);
+  border-radius:  3px;
+  color:          var(--muted);
+  cursor:         pointer;
+  font-family:    inherit;
+  font-size:      10px;
+  letter-spacing: 1px;
+  padding:        3px 8px;
+  text-transform: uppercase;
+  transition:     .15s;
+  white-space:    nowrap;
+}
+.vlm-theme-btn:hover { color: var(--text); border-color: var(--dim); }
+
+/* ── Commodity navigation tabs ───────────────────────────────────────────── */
+.vlm-comnav {
+  display:       flex;
+  background:    var(--hdr);
+  border-bottom: 1px solid var(--bord);
+  padding:       0 16px;
+}
+.vlm-ctab {
+  background:     none;
+  border:         none;
+  border-bottom:  2px solid transparent;
+  color:          var(--muted);
+  cursor:         pointer;
+  font-family:    inherit;
+  font-size:      13px;
+  letter-spacing: 1px;
+  padding:        9px 18px;
+  text-transform: uppercase;
+  transition:     .15s;
+}
+.vlm-ctab:hover     { color: var(--text); }
+.vlm-ctab.act       { border-bottom-color: var(--acc); color: var(--acc); }
+
+/* ── Panel / card surfaces ───────────────────────────────────────────────── */
+.vlm-panel {
+  background:    var(--surf);
+  border:        1px solid var(--bord);
+  border-radius: 3px;
+  padding:       12px 16px;
+  margin-bottom: 10px;
+}
+.vlm-panel2 {
+  background:    var(--surf2);
+  border:        1px solid var(--bord);
+  border-radius: 3px;
+}
+
+/* ── Commodity header ────────────────────────────────────────────────────── */
+.vlm-comhdr {
+  background:    var(--surf);
+  border:        1px solid var(--bord);
+  border-radius: 3px;
+  border-left:   4px solid var(--gold);
+  padding:       12px 16px;
+  margin-bottom: 10px;
+}
+.vlm-com-name {
+  font-size:      17px;
+  font-weight:    700;
+  letter-spacing: 2px;
+  color:          var(--text);
+}
+.vlm-com-meta {
+  font-size: 11px;
+  color:     var(--muted);
+}
+
+/* ── Sentiment badges ────────────────────────────────────────────────────── */
+.vlm-badge {
+  font-size:   11px;
+  font-weight: 700;
+  padding:     3px 10px;
+  border-radius: 2px;
+}
+.vlm-bull  { background: rgba(34,197,94,.15);  color: #22c55e; border: 1px solid #22c55e40; }
+.vlm-bear  { background: rgba(239,68,68,.15);   color: #ef4444; border: 1px solid #ef444440; }
+.vlm-caut  { background: rgba(251,191,36,.15);  color: #fbbf24; border: 1px solid #fbbf2440; }
+.vlm-turn  { background: rgba(96,165,250,.15);  color: #60a5fa; border: 1px solid #60a5fa40; }
+
+/* ── Control panel (report/crop year buttons) ────────────────────────────── */
+.vlm-ctrl-panel {
+  background:    var(--surf);
+  border:        1px solid var(--bord);
+  border-radius: 3px;
+  margin-bottom: 10px;
+  overflow:      hidden;
+}
+.vlm-ctrl-row {
+  display:       flex;
+  align-items:   stretch;
+  border-bottom: 1px solid var(--bord);
+}
+.vlm-ctrl-row:last-child { border-bottom: none; }
+.vlm-ctrl-key {
+  font-size:      10px;
+  letter-spacing: 1px;
+  color:          var(--dim);
+  text-transform: uppercase;
+  padding:        7px 12px;
+  background:     var(--hdr);
+  border-right:   1px solid var(--bord);
+  display:        flex;
+  align-items:    center;
+  min-width:      90px;
+  flex-shrink:    0;
+}
+.vlm-ctrl-btns {
+  display:     flex;
+  flex-wrap:   wrap;
+  gap:         4px;
+  padding:     5px 10px;
+  align-items: center;
+}
+
+/* ── Toggle / selector buttons ───────────────────────────────────────────── */
+.vlm-btn {
+  background:     var(--surf2);
+  border:         1px solid var(--bord);
+  border-radius:  2px;
+  color:          var(--dim);
+  cursor:         pointer;
+  font-family:    inherit;
+  font-size:      11px;
+  letter-spacing: 1px;
+  padding:        5px 12px;
+  text-transform: uppercase;
+  transition:     .15s;
+  white-space:    nowrap;
+}
+.vlm-btn:hover      { color: var(--text); border-color: #4a6080; }
+.vlm-btn.act        { color: var(--text); background: #1e2a3f; border-color: #4a6080; }
+.vlm-btn.disabled   { opacity: .28; pointer-events: none; }
+
+/* ── COT position table ──────────────────────────────────────────────────── */
+.vlm-tbl-wrap {
+  background:    var(--surf);
+  border:        1px solid var(--bord);
+  border-radius: 3px;
+  overflow:      hidden;
+}
+.vlm-tbl-lbl {
+  background:     var(--hdr);
+  border-bottom:  1px solid var(--bord);
+  color:          var(--dim);
+  font-size:      11px;
+  font-weight:    600;
+  letter-spacing: 2px;
+  padding:        5px 10px;
+  text-transform: uppercase;
+}
+.vlm-tbl {
+  border-collapse: collapse;
+  width: 100%;
+}
+.vlm-tbl th {
+  background:     var(--hdr);
+  border-bottom:  1px solid var(--bord);
+  color:          var(--dim);
+  font-size:      11px;
+  font-weight:    700;
+  letter-spacing: 1px;
+  padding:        5px 8px;
+  text-align:     right;
+  text-transform: uppercase;
+  white-space:    nowrap;
+}
+.vlm-tbl th.lc { text-align: left; }
+.vlm-tbl td {
+  border-bottom: 1px solid #1e2a3a;
+  color:         var(--text);
+  font-size:     13px;
+  font-weight:   600;
+  padding:       5px 9px;
+  text-align:    right;
+}
+.vlm-tbl td.lc { text-align: left; }
+
+/* Table row types */
+.vlm-r-sec td {
+  background:     var(--hdr);
+  color:          var(--dim);
+  font-size:      11px;
+  font-weight:    700;
+  letter-spacing: 2px;
+  padding:        5px 8px;
+  text-transform: uppercase;
+}
+.vlm-r-cat td.lc {
+  color:          var(--blue);
+  font-size:      14px;
+  font-weight:    700;
+  letter-spacing: 1px;
+  padding-top:    7px;
+}
+.vlm-r-long  td.lc { padding-left: 20px; color: var(--grn);   font-weight: 700; }
+.vlm-r-short td.lc { padding-left: 20px; color: var(--red);   font-weight: 700; }
+.vlm-r-spread td.lc{ padding-left: 20px; color: var(--spread);font-weight: 700; }
+.vlm-r-net   td.lc { padding-left: 20px; color: var(--text);  font-weight: 700; font-style: italic; }
+.vlm-r-long  { background: rgba(34,197,94,.03); }
+.vlm-r-short { background: rgba(239,68,68,.03); }
+.vlm-r-spread{ background: rgba(192,132,252,.03); }
+.vlm-r-oi {
+  background:  var(--hdr);
+  border-top:  2px solid var(--bord);
+}
+.vlm-r-oi td { font-weight: 700; }
+
+/* Semantic text colors */
+.vlm-pos  { color: var(--grn); font-weight: 700; }
+.vlm-neg  { color: var(--red); font-weight: 700; }
+.vlm-dim  { color: var(--dim); }
+.vlm-muted{ color: var(--muted); }
+
+/* ── Light mode table overrides ──────────────────────────────────────────── */
+body.light .vlm-tbl td         { color: #1a202c; border-bottom: 1px solid #d1dce8; }
+body.light .vlm-tbl th         { background: #d4dde8; color: #2d3748; border-bottom: 1px solid #b0bfd0; }
+body.light .vlm-r-sec td       { background: #c8d4e0; color: #2d3748; }
+body.light .vlm-r-cat td.lc    { color: #1e40af; }
+body.light .vlm-r-long  td.lc  { color: #15803d; }
+body.light .vlm-r-short td.lc  { color: #b91c1c; }
+body.light .vlm-r-spread td.lc { color: #7e22ce; }
+body.light .vlm-r-net   td.lc  { color: #1a202c; }
+body.light .vlm-r-long          { background: rgba(21,128,61,.06); }
+body.light .vlm-r-short         { background: rgba(185,28,28,.06); }
+body.light .vlm-r-spread        { background: rgba(126,34,206,.06); }
+body.light .vlm-r-oi            { background: #d4dde8; border-top: 2px solid #b0bfd0; }
+body.light .vlm-tbl-lbl         { background: #d4dde8; color: #2d3748; }
+body.light .vlm-tbl-wrap        { background: #ffffff; }
+
+/* ── Sparkline cards ─────────────────────────────────────────────────────── */
+.vlm-sparkcard {
+  background:    var(--surf2);
+  border:        1px solid var(--bord);
+  border-radius: 3px;
+  padding:       10px;
+}
+.vlm-spark-lbl {
+  font-size:      10px;
+  font-weight:    600;
+  letter-spacing: 1px;
+  color:          var(--dim);
+  text-transform: uppercase;
+  margin-bottom:  4px;
+}
+.vlm-spark-val {
+  font-size:   14px;
+  font-weight: 700;
+  color:       var(--text);
+  margin-bottom: 1px;
+}
+.vlm-spark-sub {
+  font-size:    11px;
+  color:        var(--muted);
+  margin-bottom: 4px;
+  min-height:   14px;
+}
+
+/* ── Section titles ──────────────────────────────────────────────────────── */
+.vlm-sec-title {
+  font-size:      10px;
+  font-weight:    600;
+  letter-spacing: 2px;
+  color:          var(--dim);
+  text-transform: uppercase;
+  margin-bottom:  8px;
+}
+
+/* ── KPI / stat cards (used in crop dashboard) ───────────────────────────── */
+.vlm-kpi {
+  background:    var(--surf);
+  border:        0.5px solid var(--bord);
+  border-radius: 8px;
+  padding:       12px 16px;
+  flex:          1;
+  min-width:     150px;
+}
+.vlm-kpi-lbl {
+  font-size:     15px;
+  color:         var(--muted);
+  margin-bottom: 4px;
+}
+.vlm-kpi-val {
+  font-size:   22px;
+  font-weight: 700;
+  color:       var(--text);
+}
+.vlm-kpi-sub {
+  font-size:  14px;
+  color:      var(--muted);
+  margin-top: 3px;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.vlm-footer {
+  border-top:     1px solid var(--bord);
+  color:          var(--muted);
+  font-size:      10px;
+  letter-spacing: 1px;
+  margin-top:     24px;
+  padding:        16px 24px;
+  text-align:     center;
+}
+
+/* ── Utility ─────────────────────────────────────────────────────────────── */
+.vlm-divider { border: none; border-top: 1px solid var(--bord); margin: 12px 0; }
+.vlm-grid-2  { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vlm-grid-3  { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+@media(max-width:900px){
+  .vlm-grid-2 { grid-template-columns: 1fr; }
+  .vlm-grid-3 { grid-template-columns: 1fr; }
+}
