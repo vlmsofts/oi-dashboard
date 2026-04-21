@@ -459,6 +459,24 @@ let tblFreq   = 'daily';
 const CH = {};
 const HIST = {};
 
+/* ── Format contract code for display: CTN6 -> "CTJUL 26" ── */
+function fmtContract(code) {
+  if (!code) return '—';
+  code = code.trim().toUpperCase();
+  var MC = {F:'JAN',G:'FEB',H:'MAR',J:'APR',K:'MAY',M:'JUN',
+            N:'JUL',Q:'AUG',U:'SEP',V:'OCT',X:'NOV',Z:'DEC'};
+  var i = code.length - 1;
+  while (i >= 0 && /[0-9]/.test(code[i])) i--;
+  var mo = MC[code[i]];
+  if (!mo) return code;
+  var prefix = code.slice(0, i);
+  var yrStr  = code.slice(i+1);
+  var yr     = parseInt(yrStr);
+  // Bloomberg always uses 2-digit year: 26=2026, 16=2016, 06=2006
+  var fy = yrStr.length === 2 ? 2000 + yr : yr;
+  return prefix + mo + ' ' + String(fy).slice(2);
+}
+
 /* ── Per-ticker 5yr/15yr hi/lo from history ── */
 function tkRange(history, years) {
   if (!history || !history.length) return {hi:null, lo:null};
@@ -1139,10 +1157,12 @@ async function buildTbl() {
     var th = src ? src.ticker_history : cd.ticker_history;
     var tkRows = ((th || {})[contract] || []).slice().sort(function(a,b){ return a.date<b.date?-1:1; });
     rawRows = tkRows.map(function(r, i) {
+      var newContract = i > 0 && r.contract && tkRows[i-1].contract && r.contract !== tkRows[i-1].contract;
       return {
         date:     r.date,
         open_int: r.open_int,
-        oi_chg:   i > 0 && tkRows[i-1].open_int ? r.open_int - tkRows[i-1].open_int : null
+        contract: r.contract,
+        oi_chg:   (i > 0 && !newContract) ? r.open_int - tkRows[i-1].open_int : null
       };
     });
   }
@@ -1172,7 +1192,7 @@ async function buildTbl() {
   var lo5 = hist5.length ? Math.min.apply(null, hist5) : null;
 
   tbl.innerHTML = '<thead><tr>'
-    + '<th>Date</th><th>Open Int</th><th>OI Chg</th>'
+    + '<th>Date</th><th>Contract</th><th>Open Int</th><th>OI Chg</th>'
     + '<th>% Chg</th><th>vs 5yr Hi</th><th>5yr Hi</th><th>5yr Lo</th>'
     + '</tr></thead>';
   var tbody = document.createElement('tbody');
@@ -1180,8 +1200,10 @@ async function buildTbl() {
     var pct  = r.open_int ? (((r.oi_chg||0)/r.open_int)*100).toFixed(2) : '0.00';
     var vsHi = hi5 ? ((r.open_int/hi5-1)*100).toFixed(1) : '—';
     var tr = document.createElement('tr');
+    var ctLabel = r.contract ? fmtContract(r.contract) : '—';
     tr.innerHTML =
       '<td>' + r.date + '</td>'
+      + '<td style="color:var(--dim);font-size:11px;letter-spacing:.5px;">' + ctLabel + '</td>'
       + '<td>' + f0(r.open_int) + '</td>'
       + '<td class="' + ((r.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(r.oi_chg) + '</td>'
       + '<td class="' + (parseFloat(pct)>=0?'vlm-pos':'vlm-neg') + '">' + (parseFloat(pct)>=0?'+':'') + pct + '%</td>'
@@ -1235,7 +1257,7 @@ def api_history(comm):
                 dt  = r['date']
                 tk  = r['bbg_ticker']
                 daily_agg[dt] += oi
-                by_ticker[tk].append({'date': dt, 'open_int': oi})
+                by_ticker[tk].append({'date': dt, 'open_int': oi, 'contract': r.get('contract','')})
     sd = sorted(daily_agg.keys())
     th = {'Aggregate': [{'date': d, 'open_int': daily_agg[d]} for d in sd]}
     for tk, hist in by_ticker.items():
