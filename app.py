@@ -1,0 +1,1282 @@
+# app.py — VLM Open Interest Monitor  v5
+# Run:  python app.py   ->  http://127.0.0.1:8052
+# Production: gunicorn entry point is  app:server
+
+__version__ = "2026.04.21-oi-v5"
+import sys; sys.dont_write_bytecode = True
+import json, pathlib, csv
+from datetime import datetime
+from flask import Flask, jsonify
+
+BASE_DIR  = pathlib.Path(__file__).parent
+DATA_FILE = BASE_DIR / 'data' / 'oi_data.csv'
+CSS_FILE  = BASE_DIR / 'vlm_design_system.css'
+
+app    = Flask(__name__)
+server = app
+
+# ── Contract code -> human label  (CTK6 -> "MAY 26") ────────────────────────────
+_MC = {'F':'JAN','G':'FEB','H':'MAR','J':'APR','K':'MAY','M':'JUN',
+       'N':'JUL','Q':'AUG','U':'SEP','V':'OCT','X':'NOV','Z':'DEC'}
+
+def contract_label(code):
+    if not code or len(code) < 3:
+        return code or '—'
+    code = code.strip().upper()
+    try:
+        i = len(code) - 1
+        while i >= 0 and code[i].isdigit():
+            i -= 1
+        mo  = _MC.get(code[i], '???')
+        yr  = int(code[i+1:])
+        fy  = (2020 + yr) if yr < 20 else (2000 + yr) if yr < 100 else yr
+        return f'{mo} {str(fy)[2:]}'
+    except Exception:
+        return code
+
+
+# ── Data loader ──────────────────────────────────────────────────────────────────
+def load_data():
+    if not DATA_FILE.exists():
+        return None
+
+    raw_rows = {}
+    with open(DATA_FILE, 'r', encoding='utf-8', newline='') as f:
+        for r in csv.DictReader(f):
+            try:
+                key = (r['date'], r['bbg_ticker'])
+                raw_rows[key] = {
+                    'date':         r['date'],
+                    'commodity':    r['commodity'],
+                    'contract':     r['contract'],
+                    'bbg_ticker':   r['bbg_ticker'],
+                    'settle':       float(r['settle'])  if r.get('settle')   else None,
+                    'open_int':     int(r['open_int'])  if r.get('open_int') else None,
+                    'oi_chg':       int(r['oi_chg'])    if r.get('oi_chg')   else None,
+                    'first_notice': r.get('first_notice', ''),
+                }
+            except Exception:
+                continue
+    rows = list(raw_rows.values())
+
+    if not rows:
+        return None
+
+    last_date = max(r['date'] for r in rows)
+    today_dt  = datetime.strptime(last_date, '%Y-%m-%d')
+
+    TICKER_ORDER = {
+        'CT': ['CT1 Comdty','CT2 Comdty','CT3 Comdty','CT4 Comdty','CT5 Comdty','CT6 Comdty','CT7 Comdty'],
+        'SB': ['SB1 Comdty','SB2 Comdty','SB3 Comdty','SB4 Comdty','SB5 Comdty'],
+        'KC': ['KC1 Comdty','KC2 Comdty','KC3 Comdty','KC4 Comdty','KC5 Comdty'],
+        'CC': ['CC1 Comdty','CC2 Comdty','CC3 Comdty','CC4 Comdty','CC5 Comdty'],
+    }
+
+    comm_data = {}
+    for comm in ['CT','SB','KC','CC']:
+        comm_rows = [r for r in rows if r['commodity'] == comm]
+        if not comm_rows:
+            continue
+
+        tickers = {}
+        for r in comm_rows:
+            tk = r['bbg_ticker']
+            if tk not in tickers:
+                tickers[tk] = {
+                    'label':        tk.replace(' Comdty',''),
+                    'contract':     r['contract'],
+                    'contract_lbl': contract_label(r['contract']),
+                    'settle':       None, 'open_int': None, 'oi_chg': None,
+                    'first_notice': '', 'history': [],
+                }
+            tickers[tk]['history'].append({
+                'date': r['date'], 'settle': r['settle'],
+                'open_int': r['open_int'], 'oi_chg': r['oi_chg'],
+            })
+            if r['date'] == last_date:
+                tickers[tk].update({
+                    'contract':     r['contract'],
+                    'contract_lbl': contract_label(r['contract']),
+                    'settle':       r['settle'],
+                    'open_int':     r['open_int'],
+                    'oi_chg':       r['oi_chg'],
+                    'first_notice': r.get('first_notice', ''),
+                })
+
+        for tk in tickers:
+            tickers[tk]['history'].sort(key=lambda x: x['date'])
+
+        ordered = [tk for tk in TICKER_ORDER.get(comm, []) if tk in tickers]
+        ordered += [tk for tk in tickers if tk not in ordered]
+
+        last_rows = [r for r in comm_rows if r['date'] == last_date]
+        agg_oi    = sum(r['open_int'] for r in last_rows if r['open_int'])
+        agg_chg   = sum(r['oi_chg']   for r in last_rows if r['oi_chg'])
+
+        from collections import defaultdict
+        daily_agg    = defaultdict(int)
+        for r in comm_rows:
+            if r['open_int']:
+                daily_agg[r['date']] += r['open_int']
+        sorted_dates = sorted(daily_agg.keys())
+
+        def yr_range(years):
+            vals = [daily_agg[d] for d in sorted_dates
+                    if (today_dt - datetime.strptime(d, '%Y-%m-%d')).days <= 365*years]
+            return (min(vals), max(vals)) if vals else (0, 0)
+
+        lo5,  hi5  = yr_range(5)
+        lo15, hi15 = yr_range(15)
+        sparkline  = [daily_agg[d] for d in sorted_dates[-252:]]
+
+        if sorted_dates:
+            first_dt  = datetime.strptime(sorted_dates[0], '%Y-%m-%d')
+            max_years = max(1, round((today_dt - first_dt).days / 365))
+        else:
+            max_years = 18
+
+        # Inline JSON — only current-year ticker history (monitor grid use)
+        # Full history fetched on demand via /api/history/<comm>
+        cur_year = last_date[:4]
+        ticker_history_inline = {}
+        for tk in ordered:
+            lbl = tk.replace(' Comdty', '')
+            ticker_history_inline[lbl] = [
+                {'date': h['date'], 'open_int': h['open_int'],
+                 'oi_chg': h['oi_chg'], 'settle': h['settle']}
+                for h in tickers[tk]['history']
+                if h['date'][:4] == cur_year
+            ]
+
+        # 5yr daily_agg for inline seasonal fallback
+        cutoff_5y        = sorted_dates[-1825:] if len(sorted_dates) > 1825 else sorted_dates
+        daily_agg_inline = {d: daily_agg[d] for d in cutoff_5y}
+
+        comm_data[comm] = {
+            'tickers':       {tk: tickers[tk] for tk in ordered},
+            'ordered':       ordered,
+            'agg_oi':        agg_oi,
+            'agg_chg':       agg_chg,
+            'lo5': lo5, 'hi5': hi5, 'lo15': lo15, 'hi15': hi15,
+            'sparkline':     sparkline,
+            'daily_agg':     daily_agg_inline,
+            'ticker_history': ticker_history_inline,
+            'max_years':     max_years,
+        }
+
+    return {'last_date': last_date, 'commodities': comm_data}
+
+
+def load_css():
+    return CSS_FILE.read_text(encoding='utf-8') if CSS_FILE.exists() else ''
+
+
+# ── HTML template ────────────────────────────────────────────────────────────────
+# Note: uses %%CSS%%, %%DATA%%, %%VERSION%% as placeholders (not {{ }} to avoid
+# conflicts with JS template literals and CSS variable syntax)
+HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>OI Monitor — VLM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+%%CSS%%
+
+/* OI dashboard overrides */
+body { color: var(--text); font-family: 'Aptos', 'Nunito', 'Segoe UI Semibold', 'Segoe UI', sans-serif !important; }
+* { font-family: inherit; }
+.vlm-logo     { color: var(--text) !important; }
+.vlm-logo-sub { color: var(--dim)  !important; letter-spacing:2px; }
+.vlm-asof     { color: var(--dim)  !important; }
+.vlm-topbar-meta { color: var(--dim) !important; }
+.vlm-theme-btn { color: var(--dim) !important; font-weight:600; }
+.vlm-theme-btn:hover { color: var(--text) !important; border-color:var(--text) !important; }
+
+/* Tabs — no background change, just gold underline */
+.vlm-secnav { background:var(--hdr) !important; border-bottom:1px solid var(--bord) !important; }
+.vlm-sectab { color:var(--muted) !important; font-weight:700; letter-spacing:2px;
+              border-bottom:2px solid transparent !important; background:none !important; }
+.vlm-sectab:hover { color:var(--dim) !important; background:none !important; }
+.vlm-sectab.act   { color:var(--acc) !important; border-bottom-color:var(--acc) !important;
+                    background:none !important; }
+
+/* Buttons */
+.vlm-btn { color:var(--dim) !important; font-weight:600; letter-spacing:1px; }
+.vlm-btn:hover { color:var(--text) !important; border-color:var(--dim) !important; }
+.vlm-btn.act { color:#fff !important; background:#1e3a5f !important; border-color:var(--blue) !important; }
+body.light .vlm-btn.act { color:#fff !important; background:#1e40af !important; border-color:#1e40af !important; }
+.vlm-pos { color:var(--grn) !important; font-weight:700; }
+.vlm-neg { color:var(--red) !important; font-weight:700; }
+.vlm-muted { color:var(--muted) !important; }
+select.oi-sel { color:var(--text) !important; font-weight:600; }
+select.oi-sel option { background:var(--surf2); color:var(--text); }
+input.d-inp { color:var(--text) !important; }
+body.light select.oi-sel option { background:#fff; color:#1a202c; }
+
+/* Year range slider */
+.yr-slider-wrap { display:flex; align-items:center; gap:8px; }
+.yr-slider { -webkit-appearance:none; appearance:none; width:130px; height:4px;
+             background:var(--bord2); border-radius:2px; outline:none; cursor:pointer; }
+.yr-slider::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px;
+             border-radius:50%; background:var(--acc); cursor:pointer; }
+.yr-label { font-size:11px; font-weight:700; color:var(--acc); min-width:34px; letter-spacing:1px; }
+
+/* Layout */
+.main-wrap { max-width:1600px; margin:0 auto; }
+.tab-content { display:none; }
+.tab-content.act { display:block; }
+
+/* Monitor grid — 14 columns */
+.G { display:grid;
+     grid-template-columns:118px 80px 82px 76px 76px 90px minmax(130px,1fr) 72px 80px 72px 80px 90px;
+     gap:0; }
+.grid-head { background:var(--hdr); border-bottom:1px solid var(--acc);
+             padding:4px 14px; position:sticky; top:49px; z-index:9; }
+.gh { color:var(--dim); font-size:11px; font-weight:700; letter-spacing:.5px;
+      text-transform:uppercase; text-align:right; padding:3px 4px;
+      white-space:nowrap; overflow:hidden; }
+.gh:first-child { text-align:left; }
+
+.agg-row { padding:7px 14px; cursor:pointer; align-items:center;
+           background:var(--surf); border-bottom:1px solid var(--bord);
+           transition:background .1s; }
+.agg-row:hover { background:var(--surf2); }
+.ct-row  { padding:5px 14px; align-items:center; background:var(--bg);
+           border-bottom:1px solid #1a2030; cursor:pointer; transition:background .1s; }
+.ct-row:hover { background:var(--surf2); }
+.ct-row.sel   { background:#0f1e35; border-left:3px solid var(--acc); }
+
+.c  { font-size:13px; font-weight:600; text-align:right; padding:2px 5px;
+      white-space:nowrap; overflow:hidden; color:var(--text); }
+.cl { text-align:left; padding:2px 5px; font-size:13px; }
+.ticker-lbl { display:flex; align-items:center; gap:5px;
+              font-size:14px; font-weight:700; letter-spacing:1px; }
+.ticker-sub { font-size:11px; font-weight:600; color:var(--muted);
+              margin-left:3px; letter-spacing:.5px; }
+.arr { font-size:9px; color:var(--muted); transition:transform .2s;
+       display:inline-block; line-height:1; }
+.arr.open { transform:rotate(90deg); }
+.ctlbl    { color:var(--muted); font-size:12px; font-weight:700;
+            letter-spacing:1px; padding-left:14px; }
+.ct-month { color:var(--dim); font-size:11px; font-weight:600; margin-left:5px; }
+.fn { color:var(--muted); font-size:11px; font-weight:600; letter-spacing:.5px; }
+
+.spark-wrap { position:relative; width:100%; height:28px; cursor:crosshair; }
+body.light .spark-wrap svg rect { filter: brightness(0.6); }
+.oi-tooltip { display:none; position:fixed; background:var(--surf);
+              border:1px solid var(--bord2); border-radius:3px; padding:5px 10px;
+              font-size:11px; white-space:nowrap; z-index:999;
+              color:var(--text); pointer-events:none;
+              box-shadow:0 2px 12px rgba(0,0,0,.5); }
+
+/* Chart panel */
+.chart-panel { background:var(--surf); border-top:2px solid var(--acc);
+               padding:14px 16px; display:none; }
+.chart-panel.open { display:block; }
+.chart-hdr { display:flex; align-items:center; gap:8px;
+             margin-bottom:10px; flex-wrap:wrap; }
+.chart-ttl { color:var(--acc); font-size:12px; font-weight:700;
+             letter-spacing:2px; text-transform:uppercase; }
+.d-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.d-inp { background:var(--surf2); border:1px solid var(--bord); color:var(--text);
+         padding:3px 7px; font-size:10px; font-family:inherit;
+         border-radius:2px; width:118px; }
+.cw  { position:relative; width:100%; height:240px; margin-top:8px; }
+.leg-row { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:4px; }
+.leg { display:flex; align-items:center; gap:5px; font-size:11px;
+       color:var(--dim); letter-spacing:.5px; font-weight:600; }
+.lsw   { width:22px; height:2px; }
+.lsw-b { width:22px; height:9px; border-radius:2px; }
+
+/* Seasonal */
+.seas-outer { padding:14px 16px; }
+.seas-top   { display:flex; align-items:center; gap:8px;
+              margin-bottom:14px; flex-wrap:wrap; }
+.seas-grid  { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; }
+.seas-card  { background:var(--surf); border:1px solid var(--bord);
+              border-radius:3px; padding:12px; }
+.scw { position:relative; width:100%; height:200px; }
+
+/* Table */
+.tbl-outer { padding:14px 16px; }
+.tbl-top   { display:flex; align-items:center; gap:8px;
+             margin-bottom:12px; flex-wrap:wrap; }
+.oi-sel { background:var(--surf2); border:1px solid var(--bord); color:var(--text);
+          padding:5px 9px; font-size:11px; font-family:inherit;
+          letter-spacing:1px; border-radius:2px; }
+.tbl-scroll { overflow-x:auto; border:1px solid var(--bord); border-radius:3px; }
+.htbl { border-collapse:collapse; width:100%; }
+.htbl th { background:var(--hdr); color:var(--dim); font-size:11px; font-weight:700;
+           letter-spacing:1px; padding:5px 10px; text-align:right;
+           border-bottom:1px solid var(--acc); white-space:nowrap;
+           text-transform:uppercase; }
+.htbl th:first-child { text-align:left; }
+.htbl td { padding:5px 10px; text-align:right; border-bottom:1px solid #1a2030;
+           color:var(--text); font-size:13px; font-weight:600; }
+.htbl td:first-child { text-align:left; color:var(--muted); font-size:12px; }
+.htbl tr:hover td { background:var(--surf2); }
+
+body.light .ct-row { background:var(--surf2); border-bottom:1px solid var(--bord); }
+body.light .ct-row:hover { background:var(--hdr); }
+body.light .ct-row.sel { background:#dce8ff; border-left:3px solid var(--acc); }
+body.light .htbl td { border-bottom:1px solid var(--bord); }
+
+@media(max-width:800px){
+  .G { grid-template-columns:90px 72px 72px 76px 1fr 64px 54px !important; }
+  .hm { display:none !important; }
+  .cw,.scw { height:180px; }
+  .seas-grid { grid-template-columns:1fr; }
+  .grid-head { top:44px; }
+}
+</style>
+</head>
+<body>
+<div class="main-wrap">
+<div class="oi-tooltip" id="oiTip"></div>
+
+<div class="vlm-topbar">
+  <div><div class="vlm-logo">VLM</div><div class="vlm-logo-sub">OPEN INTEREST MONITOR</div></div>
+  <div class="vlm-topbar-meta">
+    <div class="vlm-dot"></div>
+    <span class="vlm-asof" id="asof">Loading...</span>
+    <span class="vlm-asof" id="clk"></span>
+    <button class="vlm-theme-btn" id="themeBtn" onclick="toggleTheme()">LIGHT</button>
+  </div>
+</div>
+
+<div class="vlm-secnav">
+  <button class="vlm-sectab act" onclick="switchTab('monitor',this)">Monitor</button>
+  <button class="vlm-sectab"     onclick="switchTab('seasonal',this)">Seasonal</button>
+  <button class="vlm-sectab"     onclick="switchTab('table',this)">Table</button>
+</div>
+
+<!-- MONITOR -->
+<div class="tab-content act" id="tab-monitor">
+  <div id="monBody"></div>
+</div>
+
+<!-- SEASONAL -->
+<div class="tab-content" id="tab-seasonal">
+  <div class="seas-outer">
+    <div class="seas-top">
+      <span class="vlm-sec-title" style="margin:0;">Seasonal OI</span>
+      <div class="yr-slider-wrap">
+        <span style="font-size:10px;letter-spacing:1px;color:var(--muted);">YRS</span>
+        <input type="range" class="yr-slider" id="seasYrSlider"
+               min="1" max="18" value="5" step="1"
+               oninput="onSeasYrSlide(this)">
+        <span class="yr-label" id="seasYrLbl">5 YR</span>
+      </div>
+      <div class="vlm-ctrl-btns" style="padding:0;" id="seasModeBtns">
+        <button class="vlm-btn act" onclick="setSeasMode('band',this)">HI / AVG / LO</button>
+        <button class="vlm-btn"     onclick="setSeasMode('individual',this)">INDIVIDUAL YRS</button>
+      </div>
+      <div class="vlm-ctrl-btns" style="padding:0;" id="seasViewBtns">
+        <button class="vlm-btn act" onclick="setSeasView('stacked',this)">STACKED</button>
+        <button class="vlm-btn"     onclick="setSeasView('single',this)">SINGLE</button>
+      </div>
+      <select class="oi-sel" id="seasSingleComm" style="display:none;"
+              onchange="onSeasCommChange()">
+        <option value="CT">COTTON (CT)</option>
+        <option value="SB">SUGAR (SB)</option>
+        <option value="KC">COFFEE (KC)</option>
+        <option value="CC">COCOA (CC)</option>
+      </select>
+      <select class="oi-sel" id="seasContract" onchange="buildSeasonal()">
+        <option value="Aggregate">AGGREGATE</option>
+      </select>
+    </div>
+    <div class="seas-grid" id="seasGrid"></div>
+    <div id="seasSingle" style="display:none;">
+      <div class="seas-card">
+        <div id="seasSingleHdr" style="margin-bottom:8px;"></div>
+        <div class="leg-row" id="seasSingleLeg" style="margin-bottom:6px;"></div>
+        <div class="scw" style="height:360px;">
+          <canvas id="scSingle" role="img" aria-label="Seasonal OI chart">Seasonal OI.</canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TABLE -->
+<div class="tab-content" id="tab-table">
+  <div class="tbl-outer">
+    <div class="tbl-top">
+      <span class="vlm-sec-title" style="margin:0;">Historical OI Table</span>
+      <select class="oi-sel" id="tblComm" onchange="onTblCommChange()">
+        <option value="CT">COTTON (CT)</option>
+        <option value="SB">SUGAR (SB)</option>
+        <option value="KC">COFFEE (KC)</option>
+        <option value="CC">COCOA (CC)</option>
+      </select>
+      <select class="oi-sel" id="tblContract" onchange="buildTbl()">
+        <option value="Aggregate">AGGREGATE</option>
+      </select>
+      <div class="vlm-ctrl-btns" style="padding:0;" id="freqBtns">
+        <button class="vlm-btn act" onclick="setFreq('daily',this)">DAILY</button>
+        <button class="vlm-btn"     onclick="setFreq('weekly',this)">WEEKLY</button>
+        <button class="vlm-btn"     onclick="setFreq('monthly',this)">MONTHLY</button>
+      </div>
+      <div class="d-row">
+        <span style="font-size:10px;letter-spacing:1px;color:var(--muted);">FROM</span>
+        <input class="d-inp" type="date" id="tblFrom" value="2023-01-01">
+        <span style="font-size:10px;letter-spacing:1px;color:var(--muted);">TO</span>
+        <input class="d-inp" type="date" id="tblTo">
+        <button class="vlm-btn" onclick="buildTbl()">GO</button>
+      </div>
+    </div>
+    <div class="tbl-scroll"><table class="htbl" id="histTbl"></table></div>
+  </div>
+</div>
+
+</div><!-- /main-wrap -->
+<div class="vlm-footer">VLM COMMODITIES — OI MONITOR &nbsp;·&nbsp; BLOOMBERG EOD &nbsp;·&nbsp;
+  UPDATES DAILY 09:35 EST &nbsp;·&nbsp; v%%VERSION%%</div>
+
+<script>
+const DATA = %%DATA%%;
+const CFG = {
+  CT: {name:'COTTON NO.2', color:'#E8C547', ca:'rgba(232,197,71,0.12)'},
+  SB: {name:'SUGAR NO.11', color:'#E07B54', ca:'rgba(224,123,84,0.12)'},
+  KC: {name:'COFFEE C',    color:'#C8956D', ca:'rgba(200,149,109,0.12)'},
+  CC: {name:'COCOA',       color:'#A07855', ca:'rgba(160,120,85,0.12)'},
+};
+const COMMS = ['CT','SB','KC','CC'];
+
+/* ── Single state block — NO duplicates ── */
+let expanded  = null;
+let selKey    = null;
+let cMode     = 'seasonal';
+let seasYr    = 5;
+let seasMode  = 'band';
+let seasView  = 'stacked';
+let tblFreq   = 'daily';
+const CH = {};
+const HIST = {};
+
+/* ── Per-ticker 5yr/15yr hi/lo from history ── */
+function tkRange(history, years) {
+  if (!history || !history.length) return {hi:null, lo:null};
+  var cutMs = years * 365 * 86400000;
+  var now   = new Date();
+  var vals  = history.filter(function(r) {
+    return r.open_int && (now - new Date(r.date)) <= cutMs;
+  }).map(function(r){ return r.open_int; });
+  if (!vals.length) return {hi:null, lo:null};
+  return {hi: Math.max.apply(null,vals), lo: Math.min.apply(null,vals)};
+}
+
+/* ── Contract sequence labels (MAY 1, MAY 2, JUL 1 etc) ── */
+function buildContractLabels(cd) {
+  // Walk ordered tickers, count occurrences of each month abbrev
+  // contract_lbl is like "MAY 26" — strip year to get month
+  var counts = {};
+  var labels = {};
+  (cd.ordered || []).forEach(function(tk) {
+    var td  = cd.tickers[tk];
+    var lbl = td ? td.contract_lbl : '';          // e.g. "MAY 26"
+    var mo  = lbl ? lbl.split(' ')[0] : '';       // e.g. "MAY"
+    if (!mo) { labels[tk] = tk.replace(' Comdty',''); return; }
+    counts[mo] = (counts[mo] || 0) + 1;
+    labels[tk] = mo + ' ' + counts[mo];           // e.g. "MAY 1", "MAY 2"
+  });
+  return labels;
+}
+
+/* ── Global tooltip ── */
+var _tip = null;
+function initTooltip() {
+  _tip = document.getElementById('oiTip');
+  document.addEventListener('mousemove', function(e) {
+    if (_tip && _tip.style.display === 'block') {
+      _tip.style.left = (e.clientX + 14) + 'px';
+      _tip.style.top  = (e.clientY - 10) + 'px';
+    }
+  });
+}
+function showTip(e, txt) {
+  if (!_tip) return;
+  _tip.textContent = txt;
+  _tip.style.display = 'block';
+  _tip.style.left = (e.clientX + 14) + 'px';
+  _tip.style.top  = (e.clientY - 10) + 'px';
+}
+function hideTip() {
+  if (_tip) _tip.style.display = 'none';
+}   // full history cache from /api/history/<comm>
+
+const light = () => document.body.classList.contains('light');
+
+/* ── Formatters ── */
+const f0 = n => (n == null || n === '' || isNaN(+n)) ? '—'
+              : (+n).toLocaleString('en-US', {maximumFractionDigits: 0});
+const fp = n => (n == null || n === '' || isNaN(+n)) ? '—'
+              : (+n < 100 ? (+n).toFixed(2) : Math.round(+n).toLocaleString());
+const fc = n => (n == null || n === '' || isNaN(+n)) ? '—'
+              : ((+n >= 0 ? '+' : '') + Math.round(+n).toLocaleString());
+const tk = v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : String(v);
+
+function cc() {
+  const l = light();
+  return {
+    grid:  l ? '#c8d4e0' : '#1e2a3a',
+    tick:  l ? '#2d3748' : '#94a3b8',
+    tip: { bg: l?'#fff':'#0f1520', title: l?'#1a202c':'#f8fafc',
+           body: l?'#2d3748':'#94a3b8', border: l?'#c8d4e0':'#2a3548' },
+  };
+}
+
+/* ── Theme ── */
+function toggleTheme() {
+  document.body.classList.toggle('light');
+  document.getElementById('themeBtn').textContent = light() ? 'DARK' : 'LIGHT';
+  Object.values(CH).forEach(c => { if (c) c.destroy(); });
+  Object.keys(CH).forEach(k => delete CH[k]);
+  buildMonitor();
+  if (document.getElementById('tab-seasonal').classList.contains('act')) buildSeasonal();
+}
+
+/* ── Tabs ── */
+function switchTab(id, el) {
+  document.querySelectorAll('.vlm-sectab').forEach(t => t.classList.remove('act'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('act'));
+  el.classList.add('act');
+  document.getElementById('tab-' + id).classList.add('act');
+  if (id === 'seasonal') { populateSeasContract(); buildSeasonal(); }
+  if (id === 'table')    { populateTblContract();  buildTbl(); }
+}
+
+/* ── Sparkline with range band and hover tooltip ── */
+function makeSpark(sparkData, val, lo5, hi5, lo15, hi15, color) {
+  if (!sparkData || sparkData.length < 2) {
+    // Fallback simple bar if no history yet
+    var tot = hi15 || hi5 || val * 1.5 || 1;
+    var pct = Math.min(96, Math.max(2, Math.round(val / tot * 100)));
+    var sTip = 'Now: ' + f0(val) + ' | 5yr Hi: ' + f0(hi5) + ' | 5yr Lo: ' + f0(lo5) + ' | 15yr Hi: ' + f0(hi15) + ' | 15yr Lo: ' + f0(lo15);
+    return '<div class="spark-wrap" data-tip="' + sTip + '" onmouseenter="showTip(event,this.dataset.tip)" onmouseleave="hideTip()">'
+      + '<svg width="100%" height="28" viewBox="0 0 140 28" preserveAspectRatio="none">'
+      + '<rect x="0" y="8" width="140" height="12" fill="rgba(74,96,128,0.15)"/>'
+      + '<rect x="' + Math.round(140*(lo5||0)/(hi15||tot)) + '" y="9" width="'
+      + Math.round(140*((hi5||tot)-(lo5||0))/(hi15||tot)) + '" height="10" fill="rgba(74,96,128,0.28)"/>'
+      + '<rect x="' + Math.round(pct*1.4-1) + '" y="6" width="3" height="16" rx="1" fill="' + color + '"/>'
+      + '</svg>'
+      + '</div>';
+  }
+
+  var W = 138, H = 26, PAD = 2;
+  var mn  = Math.min.apply(null, sparkData);
+  var mx  = Math.max.apply(null, sparkData);
+  var rng = mx - mn || 1;
+  var n   = sparkData.length;
+
+  function sx(i) { return PAD + Math.round(i / (n-1) * (W - PAD*2)); }
+  function sy(v) { return PAD + Math.round((1 - (v-mn)/rng) * (H - PAD*2)); }
+
+  // Line path
+  var pts = sparkData.map(function(v, i) { return sx(i) + ',' + sy(v); }).join(' ');
+
+  // Hi/Lo range lines
+  var hiY  = sy(Math.min(hi15||mx, mx));
+  var loY  = sy(Math.max(lo15||mn, mn));
+  var hi5Y = sy(Math.min(hi5||mx, mx));
+  var lo5Y = sy(Math.max(lo5||mn, mn));
+
+  // Last dot
+  var lx = sx(n-1), ly = sy(sparkData[n-1]);
+
+  // Pct vs hi5
+  var vsHi5 = hi5 ? ((val/hi5-1)*100).toFixed(1) : '—';
+  var tipTxt = 'Now: ' + f0(val) + ' | 5yr Hi: ' + f0(hi5) + ' | vs 5yr Hi: ' + vsHi5 + '% | 15yr Hi: ' + f0(hi15);
+
+  return '<div class="spark-wrap" data-tip="' + tipTxt + '" onmouseenter="showTip(event,this.dataset.tip)" onmouseleave="hideTip()">'
+    + '<svg width="100%" height="28" viewBox="0 0 ' + (W+PAD*2) + ' ' + (H+PAD*2) + '" preserveAspectRatio="none">'
+    + '<rect x="' + PAD + '" y="' + hiY + '" width="' + (W-PAD*2) + '" height="' + Math.max(1,loY-hiY) + '" fill="rgba(74,96,128,0.20)"/>'
+    + '<rect x="' + PAD + '" y="' + hi5Y + '" width="' + (W-PAD*2) + '" height="' + Math.max(1,lo5Y-hi5Y) + '" fill="rgba(74,96,128,0.38)"/>'
+    + '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linejoin="round"/>'
+    + '<circle cx="' + lx + '" cy="' + ly + '" r="2.5" fill="' + color + '"/>'
+    + '</svg>'
+    + '</div>';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MONITOR
+═══════════════════════════════════════════════════════════ */
+function buildMonitor() {
+  const body = document.getElementById('monBody');
+  body.innerHTML = '';
+
+  const hdr = document.createElement('div');
+  hdr.className = 'grid-head G';
+  hdr.innerHTML =
+    '<div class="gh">Ticker</div>'
+    + '<div class="gh">Fut Cont</div>'
+    + '<div class="gh">Open Int</div>'
+    + '<div class="gh">OI Chg</div>'
+    + '<div class="gh">Settle Px</div>'
+    + '<div class="gh">Aggte O.I.</div>'
+    + '<div class="gh" style="text-align:left;padding-left:4px;">Aggte OI (1yr)</div>'
+    + '<div class="gh">5yr Lo OI</div>'
+    + '<div class="gh">5yr Hi OI</div>'
+    + '<div class="gh">15yr Lo OI</div>'
+    + '<div class="gh">15yr Hi OI</div>'
+    + '<div class="gh">1st Notice</div>';
+  body.appendChild(hdr);
+
+  /* Tooltip delegation for .oi-cell elements */
+  body.addEventListener('mouseover', function(e) {
+    var el = e.target.closest('.oi-cell');
+    if (!el) return;
+    var comm2 = el.dataset.comm;
+    var tkKey2 = el.dataset.tk;
+    var oi = el.dataset.oi;
+    if (!comm2 || !tkKey2) return;
+    var cd2 = DATA.commodities[comm2];
+    var tkLbl2 = tkKey2.replace(' Comdty','');
+    // Use full history from HIST cache if available, else fall back to inline
+    var fullH = (HIST[comm2] && HIST[comm2].ticker_history && HIST[comm2].ticker_history[tkLbl2])
+                ? HIST[comm2].ticker_history[tkLbl2]
+                : (cd2 && cd2.tickers[tkKey2] ? cd2.tickers[tkKey2].history : []);
+    var r5  = tkRange(fullH, 5);
+    var r15 = tkRange(fullH, 15);
+    var tip = 'Now: ' + f0(+oi)
+            + ' | 5yr Hi: '  + f0(r5.hi)  + ' | 5yr Lo: '  + f0(r5.lo)
+            + ' | 15yr Hi: ' + f0(r15.hi) + ' | 15yr Lo: ' + f0(r15.lo);
+    showTip(e, tip);
+  });
+  body.addEventListener('mouseout', function(e) {
+    if (e.target.closest('.oi-cell')) hideTip();
+  });
+
+  COMMS.forEach(function(comm) {
+    var cd  = DATA.commodities[comm]; if (!cd) return;
+    var cfg = CFG[comm];
+    var isExp    = expanded === comm;
+    var ordered  = cd.ordered || Object.keys(cd.tickers);
+    var frontTk  = ordered[0];
+    var front    = cd.tickers[frontTk] || {};
+    var frontGen = frontTk.replace(' Comdty', '');
+    var frontMth = front.contract_lbl || '—';
+
+    var grp = document.createElement('div');
+    grp.style.borderBottom = '1px solid var(--bord)';
+
+    /* Aggregate row */
+    var ar = document.createElement('div');
+    ar.className = 'agg-row G';
+    ar.innerHTML =
+      '<div class="cl"><span class="ticker-lbl" style="color:' + cfg.color + '">'
+        + '<span class="arr ' + (isExp ? 'open' : '') + '">&#9654;</span>'
+        + frontGen + '<span class="ticker-sub">' + frontMth + '</span>'
+      + '</span></div>'
+      + '<div class="c" style="color:var(--dim);font-size:11px;">' + frontMth + '</div>'
+      + '<div class="c oi-cell" data-comm="' + comm + '" data-tk="' + frontTk + '" data-oi="' + (front.open_int||'') + '">' + f0(front.open_int) + '</div>'
+      + '<div class="c ' + ((front.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(front.oi_chg) + '</div>'
+      + '<div class="c" style="color:' + ((front.oi_chg||0)>=0?'var(--grn)':'var(--red)') + ';">' + fp(front.settle) + '</div>'
+      + '<div class="c" style="color:' + cfg.color + ';font-weight:700;">' + f0(cd.agg_oi) + '</div>'
+      + '<div class="cl" style="padding:2px 5px;">' + makeSpark(cd.sparkline, cd.agg_oi, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color) + '</div>'
+      + '<div class="c vlm-muted">' + f0(cd.lo5) + '</div>'
+      + '<div class="c" style="color:var(--red);">' + f0(cd.hi5) + '</div>'
+      + '<div class="c vlm-muted">' + f0(cd.lo15) + '</div>'
+      + '<div class="c vlm-muted">' + f0(cd.hi15) + '</div>'
+      + '<div class="c fn">' + (front.first_notice || '—') + '</div>';
+    ar.addEventListener('click', function() {
+      expanded = isExp ? null : comm; selKey = null;
+      if (expanded) ensureHist(expanded).then(function(){ buildMonitor(); });
+      else buildMonitor();
+    });
+    grp.appendChild(ar);
+
+    if (isExp) {
+      var seqLabels = buildContractLabels(cd);
+      ordered.slice(1).forEach(function(tkKey) {
+        var td  = cd.tickers[tkKey]; if (!td) return;
+        var key = comm + '-' + tkKey;
+        var isSel = selKey === key;
+        var lbl = tkKey.replace(' Comdty', '');
+        var mth = td.contract_lbl || '—';
+
+        var cr = document.createElement('div');
+        cr.className = 'ct-row G' + (isSel ? ' sel' : '');
+        cr.innerHTML =
+          '<div class="cl"><span class="ctlbl">' + (seqLabels[tkKey]||lbl) + '</span></div>'
+          + '<div class="c" style="color:var(--dim);font-size:11px;">' + mth + '</div>'
+          + '<div class="c oi-cell" data-comm="' + comm + '" data-tk="' + tkKey + '" data-oi="' + (td.open_int||'') + '">' + f0(td.open_int) + '</div>'
+          + '<div class="c ' + ((td.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(td.oi_chg) + '</div>'
+          + '<div class="c" style="color:' + ((td.oi_chg||0)>=0?'var(--grn)':'var(--red)') + ';">' + fp(td.settle) + '</div>'
+          + '<div class="c vlm-muted">' + f0(cd.agg_oi) + '</div>'
+          + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color) + '</div>'
+          + '<div class="c vlm-muted">' + f0(cd.lo5) + '</div>'
+          + '<div class="c" style="color:var(--red);">' + f0(cd.hi5) + '</div>'
+          + '<div class="c vlm-muted">' + f0(cd.lo15) + '</div>'
+          + '<div class="c vlm-muted">' + f0(cd.hi15) + '</div>'
+          + '<div class="c fn">' + (td.first_notice || '—') + '</div>';
+
+        cr.addEventListener('click', function(e) {
+          e.stopPropagation();
+          selKey = isSel ? null : key;
+          buildMonitor();
+          if (selKey) setTimeout(function() { drawChart(comm, tkKey); }, 40);
+        });
+        grp.appendChild(cr);
+      });
+
+      if (selKey && selKey.startsWith(comm + '-')) {
+        var tkKey2 = selKey.slice(comm.length + 1);
+        var td2    = cd.tickers[tkKey2] || {};
+        var lbl2   = tkKey2.replace(' Comdty', '');
+        var cp = document.createElement('div');
+        cp.className = 'chart-panel open';
+        cp.id = 'cp-' + comm;
+        cp.innerHTML =
+          '<div class="chart-hdr">'
+          + '<span class="chart-ttl">' + lbl2 + ' ' + (td2.contract_lbl||'') + ' — Open Interest</span>'
+          + '<div class="vlm-ctrl-btns" style="padding:0;">'
+          + '<button class="vlm-btn ' + (cMode==='seasonal'?'act':'')   + '" onclick="setChMode(&quot;seasonal&quot;,this)">SEASONAL</button>'
+          + '<button class="vlm-btn ' + (cMode==='historical'?'act':'') + '" onclick="setChMode(&quot;historical&quot;,this)">HISTORICAL</button>'
+          + '<button class="vlm-btn ' + (cMode==='daily'?'act':'')      + '" onclick="setChMode(&quot;daily&quot;,this)">DAILY CHG</button>'
+          + '</div>'
+          + '<div class="d-row" id="cpDates" style="display:' + (cMode==='historical'?'flex':'none') + ';">'
+          + '<span style="font-size:10px;letter-spacing:1px;color:var(--muted);">FROM</span>'
+          + '<input class="d-inp" type="date" id="cpFrom" value="2020-01-01">'
+          + '<span style="font-size:10px;letter-spacing:1px;color:var(--muted);">TO</span>'
+          + '<input class="d-inp" type="date" id="cpTo" value="' + DATA.last_date + '">'
+          + '<button class="vlm-btn" onclick="redrawChart()">GO</button>'
+          + '</div></div>'
+          + '<div class="leg-row" id="cpLeg"></div>'
+          + '<div class="cw"><canvas id="cpCanvas" role="img" aria-label="OI chart">OI history.</canvas></div>';
+        grp.appendChild(cp);
+      }
+    }
+    body.appendChild(grp);
+  });
+
+  if (selKey) {
+    var dash = selKey.indexOf('-');
+    drawChart(selKey.slice(0, dash), selKey.slice(dash + 1));
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CONTRACT CHART
+═══════════════════════════════════════════════════════════ */
+function setChMode(m, btn) {
+  cMode = m;
+  var comm = selKey ? selKey.split('-')[0] : null;
+  if (comm) {
+    var cp = document.getElementById('cp-' + comm);
+    if (cp) cp.querySelectorAll('.vlm-btn').forEach(function(b) { b.classList.remove('act'); });
+  }
+  btn.classList.add('act');
+  var dr = document.getElementById('cpDates');
+  if (dr) dr.style.display = m === 'historical' ? 'flex' : 'none';
+  redrawChart();
+}
+function redrawChart() {
+  if (!selKey) return;
+  var dash = selKey.indexOf('-');
+  drawChart(selKey.slice(0, dash), selKey.slice(dash + 1));
+}
+
+function drawChart(comm, tkKey) {
+  var canvas = document.getElementById('cpCanvas'); if (!canvas) return;
+  if (CH.contract) { CH.contract.destroy(); CH.contract = null; }
+  var cd  = DATA.commodities[comm];
+  var td  = cd.tickers[tkKey]; if (!td) return;
+  var cfg = CFG[comm];
+  var leg = document.getElementById('cpLeg');
+  var C   = cc();
+  var bo  = {
+    responsive: true, maintainAspectRatio: false,
+    interaction: {mode: 'index', intersect: false},
+    plugins: {
+      legend: {display: false},
+      tooltip: {mode:'index', intersect:false, backgroundColor:C.tip.bg,
+                titleColor:C.tip.title, bodyColor:C.tip.body,
+                borderColor:C.tip.border, borderWidth:1}
+    },
+    scales: {
+      x: {grid:{color:C.grid}, ticks:{color:C.tick, font:{size:9}, maxTicksLimit:12}},
+      y: {grid:{color:C.grid}, ticks:{color:C.tick, font:{size:10}, callback:tk}}
+    }
+  };
+
+  var hist     = td.history || [];
+  var curYear  = new Date(DATA.last_date).getFullYear();
+  var labels   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  if (cMode === 'seasonal') {
+    var byMo  = Array.from({length:12}, function() { return []; });
+    var cutDt = new Date(DATA.last_date);
+    cutDt.setFullYear(cutDt.getFullYear() - seasYr);
+    hist.forEach(function(r) {
+      var dt = new Date(r.date);
+      if (dt >= cutDt && dt.getFullYear() < curYear && r.open_int)
+        byMo[dt.getMonth()].push(r.open_int);
+    });
+    var avg = byMo.map(function(a) { return a.length ? Math.round(a.reduce(function(s,v){return s+v;},0)/a.length) : null; });
+    var hi  = byMo.map(function(a) { return a.length ? Math.max.apply(null,a) : null; });
+    var lo  = byMo.map(function(a) { return a.length ? Math.min.apply(null,a) : null; });
+    var cur = Array(12).fill(null);
+    hist.filter(function(r){ return new Date(r.date).getFullYear()===curYear&&r.open_int; })
+        .forEach(function(r){ var m=new Date(r.date).getMonth(); if(cur[m]===null||r.open_int>cur[m])cur[m]=r.open_int; });
+    if (leg) leg.innerHTML =
+      '<div class="leg"><div class="lsw-b" style="background:' + cfg.ca + ';border:1px dashed ' + cfg.color + '88;height:8px;border-radius:2px;"></div>' + seasYr + 'yr Range</div>'
+      + '<div class="leg"><div class="lsw" style="background:' + C.tick + ';height:2px;"></div>' + seasYr + 'yr Avg</div>'
+      + '<div class="leg"><div class="lsw" style="background:' + cfg.color + ';height:2px;"></div>' + curYear + '</div>';
+    CH.contract = new Chart(canvas, {type:'line', data:{labels:labels, datasets:[
+      {data:hi, fill:'+1', backgroundColor:cfg.ca, borderColor:cfg.color+'55', borderWidth:1, borderDash:[2,3], pointRadius:0, label:'Hi'},
+      {data:lo, fill:false, borderColor:cfg.color+'33', borderWidth:1, borderDash:[2,3], pointRadius:0, label:'Lo'},
+      {data:avg, borderColor:C.tick, borderWidth:1.5, borderDash:[5,4], pointRadius:0, fill:false, label:seasYr+'yr Avg'},
+      {data:cur, borderColor:cfg.color, borderWidth:2.5, pointRadius:4, pointBackgroundColor:cfg.color, fill:false, spanGaps:false, label:String(curYear)},
+    ]}, options:bo});
+
+  } else if (cMode === 'historical') {
+    var from = document.getElementById('cpFrom') ? document.getElementById('cpFrom').value : '2020-01-01';
+    var to   = document.getElementById('cpTo')   ? document.getElementById('cpTo').value   : DATA.last_date;
+    var f = hist.filter(function(r){ return r.date>=from&&r.date<=to&&r.open_int!=null; });
+    var stride = Math.max(1, Math.floor(f.length/150));
+    f = f.filter(function(_,i){ return i%stride===0; });
+    if (leg) leg.innerHTML = '<div class="leg"><div class="lsw" style="background:' + cfg.color + ';height:2px;"></div>' + tkKey.replace(' Comdty','') + ' Daily OI</div>';
+    CH.contract = new Chart(canvas, {type:'line', data:{
+      labels: f.map(function(r){ return r.date.slice(5); }),
+      datasets:[{data:f.map(function(r){return r.open_int;}), borderColor:cfg.color,
+                 borderWidth:1.5, pointRadius:0, fill:true, backgroundColor:cfg.ca, label:'OI'}]
+    }, options:bo});
+
+  } else {
+    var f2 = hist.filter(function(r){ return r.oi_chg!=null; }).slice(-120);
+    var stride2 = Math.max(1, Math.floor(f2.length/60));
+    f2 = f2.filter(function(_,i){ return i%stride2===0; });
+    if (leg) leg.innerHTML =
+      '<div class="leg"><div class="lsw" style="background:var(--grn);height:2px;"></div>+OI</div>'
+      + '<div class="leg"><div class="lsw" style="background:var(--red);height:2px;"></div>-OI</div>';
+    CH.contract = new Chart(canvas, {type:'bar', data:{
+      labels: f2.map(function(r){ return r.date.slice(5); }),
+      datasets:[{data:f2.map(function(r){return r.oi_chg;}),
+                 backgroundColor:f2.map(function(r){ return (r.oi_chg||0)>=0?'rgba(34,197,94,0.7)':'rgba(239,68,68,0.7)'; }),
+                 borderWidth:0, label:'OI Chg'}]
+    }, options:bo});
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SEASONAL
+═══════════════════════════════════════════════════════════ */
+function onSeasYrSlide(el) {
+  seasYr = parseInt(el.value);
+  document.getElementById('seasYrLbl').textContent = seasYr + ' YR';
+  buildSeasonal();
+}
+function setSeasMode(m, btn) {
+  seasMode = m;
+  document.querySelectorAll('#seasModeBtns .vlm-btn').forEach(function(b){ b.classList.remove('act'); });
+  btn.classList.add('act');
+  buildSeasonal();
+}
+function setSeasView(v, btn) {
+  seasView = v;
+  document.querySelectorAll('#seasViewBtns .vlm-btn').forEach(function(b){ b.classList.remove('act'); });
+  btn.classList.add('act');
+  document.getElementById('seasSingleComm').style.display = v === 'single' ? '' : 'none';
+  buildSeasonal();
+}
+function onSeasCommChange() { populateSeasContract(); buildSeasonal(); }
+
+function populateSeasContract() {
+  var refComm = seasView === 'single'
+    ? document.getElementById('seasSingleComm').value : 'CT';
+  var cd = DATA.commodities[refComm]; if (!cd) return;
+  var sel  = document.getElementById('seasContract');
+  var prev = sel.value;
+  sel.innerHTML = '<option value="Aggregate">AGGREGATE</option>';
+  var tblSeqLabels = buildContractLabels(cd);
+  (cd.ordered || []).forEach(function(tk) {
+    var lbl = tk.replace(' Comdty', '');
+    var opt = document.createElement('option');
+    opt.value = lbl;
+    opt.textContent = tblSeqLabels[tk] || lbl;   // e.g. "MAY 1", "MAY 2"
+    sel.appendChild(opt);
+  });
+  if ([].slice.call(sel.options).some(function(o){ return o.value===prev; })) sel.value = prev;
+  var maxY   = cd.max_years || 18;
+  var slider = document.getElementById('seasYrSlider');
+  if (slider) {
+    slider.max = maxY;
+    if (seasYr > maxY) { seasYr = maxY; slider.value = maxY; document.getElementById('seasYrLbl').textContent = maxY + ' YR'; }
+  }
+}
+
+async function ensureHist(comm) {
+  if (HIST[comm]) return;
+  try {
+    var r = await fetch('/api/history/' + comm);
+    HIST[comm] = await r.json();
+  } catch(e) { console.warn('history fetch failed', comm, e); }
+}
+
+function getSeasHist(comm) {
+  var contractSel = document.getElementById('seasContract').value || 'Aggregate';
+  var src = HIST[comm] || null;
+  var agg = src ? src.daily_agg : DATA.commodities[comm].daily_agg;
+  var th  = src ? src.ticker_history : DATA.commodities[comm].ticker_history;
+  if (contractSel === 'Aggregate')
+    return Object.entries(agg).map(function(e){ return {date:e[0], open_int:e[1]}; });
+  return (th || {})[contractSel] || [];
+}
+
+function computeBand(hist, curYear) {
+  var cutDt = new Date(DATA.last_date);
+  cutDt.setFullYear(cutDt.getFullYear() - seasYr);
+  var byMo = Array.from({length:12}, function(){ return []; });
+  hist.forEach(function(r) {
+    var dt = new Date(r.date);
+    if (dt >= cutDt && dt.getFullYear() < curYear && r.open_int)
+      byMo[dt.getMonth()].push(r.open_int);
+  });
+  var avg = byMo.map(function(a){ return a.length ? Math.round(a.reduce(function(s,v){return s+v;},0)/a.length) : null; });
+  var hi  = byMo.map(function(a){ return a.length ? Math.max.apply(null,a) : null; });
+  var lo  = byMo.map(function(a){ return a.length ? Math.min.apply(null,a) : null; });
+  var cur = Array(12).fill(null);
+  hist.filter(function(r){ return new Date(r.date).getFullYear()===curYear&&r.open_int; })
+      .forEach(function(r){ var m=new Date(r.date).getMonth(); if(cur[m]===null||r.open_int>cur[m])cur[m]=r.open_int; });
+  return {avg:avg, hi:hi, lo:lo, cur:cur};
+}
+
+var YR_COLORS = ['#E8C547','#5ba3e8','#2ecc8a','#e85555','#c084fc','#E07B54','#22d3ee',
+                 '#f97316','#a3e635','#fb7185','#818cf8','#34d399','#fbbf24','#60a5fa',
+                 '#f472b6','#4ade80','#c084fc','#38bdf8'];
+
+function computeIndividual(hist, curYear) {
+  var cutDt = new Date(DATA.last_date);
+  cutDt.setFullYear(cutDt.getFullYear() - seasYr);
+  var byYear = {};
+  hist.forEach(function(r) {
+    var dt = new Date(r.date);
+    if (dt < cutDt || !r.open_int) return;
+    var yr = dt.getFullYear(), mo = dt.getMonth();
+    if (!byYear[yr]) byYear[yr] = Array(12).fill(null);
+    if (byYear[yr][mo] === null || r.open_int > byYear[yr][mo]) byYear[yr][mo] = r.open_int;
+  });
+  var years = Object.keys(byYear).map(Number).sort(function(a,b){return b-a;});
+  return {byYear:byYear, years:years};
+}
+
+function seasChartOpts() {
+  var C = cc();
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: {mode:'index', intersect:false},
+    plugins: {
+      legend: {display:false},
+      tooltip: {mode:'index', intersect:false, backgroundColor:C.tip.bg,
+                titleColor:C.tip.title, bodyColor:C.tip.body,
+                borderColor:C.tip.border, borderWidth:1,
+                callbacks: {label: function(ctx) {
+                  var v = ctx.parsed.y; if (v == null) return null;
+                  var fmt = v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':String(Math.round(v));
+                  return '  ' + ctx.dataset.label + ': ' + fmt;
+                }}}
+    },
+    scales: {
+      x: {grid:{color:C.grid}, ticks:{color:C.tick, font:{size:9}}},
+      y: {grid:{color:C.grid}, ticks:{color:C.tick, font:{size:9}, callback:tk}}
+    }
+  };
+}
+
+function buildSeasCard(comm) {
+  var cfg     = CFG[comm];
+  var hist    = getSeasHist(comm);
+  var curYear = new Date(DATA.last_date).getFullYear();
+  var labels  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var C       = cc();
+  var ds, legH;
+
+  if (seasMode === 'band') {
+    var b = computeBand(hist, curYear);
+    ds = [
+      {data:b.hi, fill:'+1', backgroundColor:cfg.ca, borderColor:cfg.color+'55',
+       borderWidth:1, borderDash:[2,3], pointRadius:0, label:'Hi'},
+      {data:b.lo, fill:false, borderColor:cfg.color+'33',
+       borderWidth:1, borderDash:[2,3], pointRadius:0, label:'Lo'},
+      {data:b.avg, borderColor:C.tick, borderWidth:1.5, borderDash:[5,4],
+       pointRadius:0, fill:false, label:seasYr+'yr Avg'},
+      {data:b.cur, borderColor:cfg.color, borderWidth:2.5, pointRadius:4,
+       pointBackgroundColor:cfg.color, fill:false, spanGaps:false, label:String(curYear)},
+    ];
+    legH =
+      '<div class="leg"><div class="lsw-b" style="background:'+cfg.ca+';border:1px dashed '+cfg.color+'88;height:8px;border-radius:2px;"></div>Hi/Lo Range</div>'
+      + '<div class="leg"><div class="lsw" style="background:'+C.tick+';height:2px;"></div>'+seasYr+'yr Avg</div>'
+      + '<div class="leg"><div class="lsw" style="background:'+cfg.color+';height:2px;"></div>'+curYear+'</div>';
+
+  } else {
+    var ind = computeIndividual(hist, curYear);
+    ds = ind.years.map(function(yr, i) {
+      return {
+        data: ind.byYear[yr],
+        borderColor: yr===curYear ? cfg.color : YR_COLORS[i % YR_COLORS.length],
+        borderWidth: yr===curYear ? 2.5 : 1.2,
+        pointRadius: yr===curYear ? 3 : 0,
+        fill: false, spanGaps: false,
+        label: String(yr), order: yr===curYear ? 0 : 1,
+      };
+    });
+    legH = ind.years.map(function(yr, i) {
+      var c = yr===curYear ? cfg.color : YR_COLORS[i % YR_COLORS.length];
+      return '<div class="leg">'
+        + '<div style="width:12px;height:12px;border-radius:2px;background:' + c
+        + ';flex-shrink:0;"></div>' + yr + '</div>';
+    }).join('');
+  }
+  return {ds:ds, legH:legH, labels:labels, cfg:cfg};
+}
+
+async function buildSeasonal() {
+  Object.keys(CH).filter(function(k){ return k.startsWith('s-'); })
+        .forEach(function(k){ if(CH[k]) CH[k].destroy(); delete CH[k]; });
+  populateSeasContract();
+
+  var commsToFetch = seasView === 'single'
+    ? [document.getElementById('seasSingleComm').value]
+    : COMMS;
+  await Promise.all(commsToFetch.map(ensureHist));
+
+  var grid         = document.getElementById('seasGrid');
+  var single       = document.getElementById('seasSingle');
+  var contractSel  = document.getElementById('seasContract').value || 'Aggregate';
+  var contractLbl  = contractSel === 'Aggregate' ? 'Aggregate OI' : contractSel;
+  var modeLbl      = seasMode === 'band' ? 'Hi / Avg / Lo' : 'Individual Years';
+
+  if (seasView === 'stacked') {
+    grid.style.display = ''; single.style.display = 'none'; grid.innerHTML = '';
+    COMMS.forEach(function(comm) {
+      var cd = DATA.commodities[comm]; if (!cd) return;
+      var card = buildSeasCard(comm);
+      var el   = document.createElement('div'); el.className = 'seas-card';
+      el.innerHTML =
+        '<div style="margin-bottom:6px;">'
+        + '<span style="font-size:13px;font-weight:700;letter-spacing:1px;color:'+card.cfg.color+'">'+comm+'</span>'
+        + '<span style="color:var(--dim);font-weight:600;font-size:12px;margin-left:5px;">'+card.cfg.name+'</span>'
+        + '<span style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-left:8px;">'+seasYr+'yr · '+contractLbl+' · '+modeLbl+'</span>'
+        + '</div>'
+        + '<div class="leg-row" style="margin-bottom:4px;">'+card.legH+'</div>'
+        + '<div class="scw"><canvas id="sc-'+comm+'" role="img" aria-label="Seasonal OI '+card.cfg.name+'">Seasonal OI.</canvas></div>';
+      grid.appendChild(el);
+      (function(c, ds, labels){ setTimeout(function() {
+        var cv = document.getElementById('sc-'+c); if (!cv) return;
+        CH['s-'+c] = new Chart(cv, {type:'line', data:{labels:labels, datasets:ds}, options:seasChartOpts()});
+      }, 60); })(comm, card.ds, card.labels);
+    });
+
+  } else {
+    grid.style.display = 'none'; single.style.display = '';
+    var comm = document.getElementById('seasSingleComm').value;
+    var card = buildSeasCard(comm);
+    document.getElementById('seasSingleHdr').innerHTML =
+      '<span style="font-size:13px;font-weight:700;letter-spacing:1px;color:'+card.cfg.color+'">'+comm+' '+card.cfg.name+'</span>'
+      + '<span style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-left:8px;">'+seasYr+'yr · '+contractLbl+' · '+modeLbl+'</span>';
+    document.getElementById('seasSingleLeg').innerHTML = card.legH;
+    setTimeout(function() {
+      var cv = document.getElementById('scSingle'); if (!cv) return;
+      if (CH['s-single']) { CH['s-single'].destroy(); delete CH['s-single']; }
+      CH['s-single'] = new Chart(cv, {type:'line', data:{labels:card.labels, datasets:card.ds}, options:seasChartOpts()});
+    }, 60);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TABLE
+═══════════════════════════════════════════════════════════ */
+function setFreq(f, btn) {
+  tblFreq = f;
+  document.querySelectorAll('#freqBtns .vlm-btn').forEach(function(b){ b.classList.remove('act'); });
+  btn.classList.add('act');
+  buildTbl();
+}
+function populateTblContract() {
+  var comm = document.getElementById('tblComm').value;
+  var cd   = DATA.commodities[comm]; if (!cd) return;
+  var sel  = document.getElementById('tblContract');
+  var prev = sel.value;
+  sel.innerHTML = '<option value="Aggregate">AGGREGATE</option>';
+  var tblSeqLabels = buildContractLabels(cd);
+  (cd.ordered || []).forEach(function(tk) {
+    var lbl = tk.replace(' Comdty', '');
+    var opt = document.createElement('option');
+    opt.value = lbl;
+    opt.textContent = tblSeqLabels[tk] || lbl;   // e.g. "MAY 1", "MAY 2"
+    sel.appendChild(opt);
+  });
+  if ([].slice.call(sel.options).some(function(o){ return o.value===prev; })) sel.value = prev;
+}
+function onTblCommChange() { populateTblContract(); buildTbl(); }
+
+async function buildTbl() {
+  var tbl      = document.getElementById('histTbl'); if (!tbl) return;
+  var comm     = document.getElementById('tblComm').value;
+  var contract = document.getElementById('tblContract').value || 'Aggregate';
+  var cd       = DATA.commodities[comm]; if (!cd) return;
+  var from     = document.getElementById('tblFrom').value || '2023-01-01';
+  var to       = document.getElementById('tblTo').value   || DATA.last_date;
+
+  /* Fetch full history for table */
+  await ensureHist(comm);
+  var src = HIST[comm];
+  var rawRows;
+  if (contract === 'Aggregate') {
+    var agg = src ? src.daily_agg : cd.daily_agg;
+    var keys = Object.keys(agg).sort();
+    rawRows = keys.map(function(d, i) {
+      return {date:d, open_int:agg[d],
+              oi_chg: i > 0 ? agg[d] - agg[keys[i-1]] : null};
+    });
+  } else {
+    var th = src ? src.ticker_history : cd.ticker_history;
+    var tkRows = ((th || {})[contract] || []).slice().sort(function(a,b){ return a.date<b.date?-1:1; });
+    rawRows = tkRows.map(function(r, i) {
+      return {
+        date:     r.date,
+        open_int: r.open_int,
+        oi_chg:   i > 0 && tkRows[i-1].open_int ? r.open_int - tkRows[i-1].open_int : null
+      };
+    });
+  }
+
+  var rows = rawRows.filter(function(r){ return r.date>=from && r.date<=to && r.open_int!=null; });
+
+  if (tblFreq === 'weekly') {
+    var w = {};
+    rows.forEach(function(r) {
+      var d  = new Date(r.date);
+      var wn = Math.floor((d - new Date(d.getFullYear(),0,1))/604800000);
+      w[d.getFullYear() + '-' + String(wn).padStart(2,'0')] = r;
+    });
+    rows = Object.values(w).sort(function(a,b){ return a.date<b.date?-1:1; });
+  }
+  if (tblFreq === 'monthly') {
+    var m = {};
+    rows.forEach(function(r){ m[r.date.slice(0,7)] = r; });
+    rows = Object.values(m).sort(function(a,b){ return a.date<b.date?-1:1; });
+  }
+
+  var todayDt = new Date(DATA.last_date);
+  var hist5   = rawRows.filter(function(r) {
+    return ((todayDt - new Date(r.date))/86400000) <= 365*5 && r.open_int;
+  }).map(function(r){ return r.open_int; });
+  var hi5 = hist5.length ? Math.max.apply(null, hist5) : null;
+  var lo5 = hist5.length ? Math.min.apply(null, hist5) : null;
+
+  tbl.innerHTML = '<thead><tr>'
+    + '<th>Date</th><th>Open Int</th><th>OI Chg</th>'
+    + '<th>% Chg</th><th>vs 5yr Hi</th><th>5yr Hi</th><th>5yr Lo</th>'
+    + '</tr></thead>';
+  var tbody = document.createElement('tbody');
+  rows.slice().reverse().forEach(function(r) {
+    var pct  = r.open_int ? (((r.oi_chg||0)/r.open_int)*100).toFixed(2) : '0.00';
+    var vsHi = hi5 ? ((r.open_int/hi5-1)*100).toFixed(1) : '—';
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + r.date + '</td>'
+      + '<td>' + f0(r.open_int) + '</td>'
+      + '<td class="' + ((r.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(r.oi_chg) + '</td>'
+      + '<td class="' + (parseFloat(pct)>=0?'vlm-pos':'vlm-neg') + '">' + (parseFloat(pct)>=0?'+':'') + pct + '%</td>'
+      + '<td class="' + (parseFloat(vsHi)>=0?'vlm-pos':'vlm-neg') + '">' + vsHi + '%</td>'
+      + '<td class="vlm-muted">' + f0(hi5) + '</td>'
+      + '<td class="vlm-muted">' + f0(lo5) + '</td>';
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+}
+
+/* ── Init ── */
+setInterval(function() {
+  var el = document.getElementById('clk');
+  if (el) el.textContent = new Date().toLocaleTimeString('en-US',
+    {hour12:false, timeZone:'America/New_York'}) + ' EST';
+}, 1000);
+
+document.getElementById('tblTo').value  = DATA.last_date;
+document.getElementById('asof').textContent = 'As of: ' + DATA.last_date + ' 09:35 EST';
+
+var maxYrs = Math.max.apply(null, Object.values(DATA.commodities).map(function(c){ return c.max_years||18; }));
+var slider = document.getElementById('seasYrSlider');
+if (slider) { slider.max = maxYrs; }
+
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+  document.body.classList.add('light');
+  document.getElementById('themeBtn').textContent = 'DARK';
+}
+initTooltip();
+populateTblContract();
+populateSeasContract();
+buildMonitor();
+</script>
+</body>
+</html>"""
+
+
+# ── Full history API endpoint ────────────────────────────────────────────────────
+@app.route('/api/history/<comm>')
+def api_history(comm):
+    if not DATA_FILE.exists():
+        return jsonify({}), 404
+    from collections import defaultdict
+    daily_agg = defaultdict(int)
+    by_ticker = defaultdict(list)
+    with open(DATA_FILE, 'r', encoding='utf-8', newline='') as f:
+        for r in csv.DictReader(f):
+            if r.get('commodity') == comm and r.get('open_int'):
+                oi  = int(r['open_int'])
+                dt  = r['date']
+                tk  = r['bbg_ticker']
+                daily_agg[dt] += oi
+                by_ticker[tk].append({'date': dt, 'open_int': oi})
+    sd = sorted(daily_agg.keys())
+    th = {'Aggregate': [{'date': d, 'open_int': daily_agg[d]} for d in sd]}
+    for tk, hist in by_ticker.items():
+        th[tk.replace(' Comdty', '')] = sorted(hist, key=lambda x: x['date'])
+    return jsonify({'daily_agg': {d: daily_agg[d] for d in sd}, 'ticker_history': th})
+
+
+# ── Routes ───────────────────────────────────────────────────────────────────────
+@app.route('/debug')
+def debug():
+    data = load_data()
+    if not data:
+        return 'No data', 503
+    out = {}
+    for comm, cd in data['commodities'].items():
+        out[comm] = {
+            'agg_oi': cd['agg_oi'], 'lo5': cd['lo5'], 'hi5': cd['hi5'],
+            'lo15': cd['lo15'], 'hi15': cd['hi15'],
+            'sparkline_len': len(cd['sparkline']),
+            'max_years': cd['max_years'],
+        }
+    return jsonify(out)
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok', 'version': __version__, 'data_exists': DATA_FILE.exists()})
+
+@app.route('/')
+def index():
+    data = load_data()
+    if data is None:
+        return ('<body style="background:#080b0f;color:#f8fafc;font-family:monospace;padding:40px;">'
+                '<h2>oi_data.csv not found — run oi_bootstrap.py first.</h2></body>'), 503
+    css  = load_css()
+    html = HTML.replace('%%CSS%%',       css)\
+               .replace('%%DATA%%',      json.dumps(data))\
+               .replace('%%VERSION%%',   __version__)
+    return html
+
+
+if __name__ == "__main__":
+    print(f"VLM OI Monitor v{__version__} — http://127.0.0.1:8052")
+    print(f"Data: {DATA_FILE}  exists={DATA_FILE.exists()}")
+    app.run(debug=False, host="0.0.0.0", port=8052)
