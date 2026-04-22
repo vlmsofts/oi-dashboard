@@ -267,7 +267,7 @@ body.light select.oi-sel option { background:#fff; color:#1a202c; }
 
 /* Monitor grid — 14 columns */
 .G { display:grid;
-     grid-template-columns:118px 80px 82px 76px 76px 90px minmax(130px,1fr) 72px 80px 72px 80px 90px;
+     grid-template-columns:118px 80px 82px 76px 76px 90px 76px 100px 72px 80px 72px 80px 90px;
      gap:0; }
 .grid-head { background:var(--hdr); border-bottom:1px solid var(--acc);
              padding:4px 14px; position:sticky; top:49px; z-index:9; }
@@ -672,6 +672,7 @@ function buildMonitor() {
     + '<div class="gh">OI Chg</div>'
     + '<div class="gh">Settle Px</div>'
     + '<div class="gh">Aggte O.I.</div>'
+    + '<div class="gh">Aggte OI Chg</div>'
     + '<div class="gh" style="text-align:left;padding-left:4px;">Aggte OI (1yr)</div>'
     + '<div class="gh">5yr Lo OI</div>'
     + '<div class="gh">5yr Hi OI</div>'
@@ -740,6 +741,7 @@ function buildMonitor() {
       + '<div class="c ' + ((front.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(front.oi_chg) + '</div>'
       + '<div class="c" style="color:' + ((front.oi_chg||0)>=0?'var(--grn)':'var(--red)') + ';">' + fp(front.settle) + '</div>'
       + '<div class="c" style="color:' + cfg.color + ';font-weight:700;">' + f0(cd.agg_oi) + '</div>'
+      + '<div class="c ' + ((cd.agg_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(cd.agg_chg) + '</div>'
       + '<div class="cl" style="padding:2px 5px;">' + makeSpark(cd.sparkline, cd.agg_oi, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color) + '</div>'
       + '<div class="c vlm-muted">' + f0(cd.lo5) + '</div>'
       + '<div class="c" style="color:var(--red);">' + f0(cd.hi5) + '</div>'
@@ -771,6 +773,7 @@ function buildMonitor() {
           + '<div class="c ' + ((td.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(td.oi_chg) + '</div>'
           + '<div class="c" style="color:' + ((td.oi_chg||0)>=0?'var(--grn)':'var(--red)') + ';">' + fp(td.settle) + '</div>'
           + '<div class="c vlm-muted">' + f0(cd.agg_oi) + '</div>'
+          + '<div class="c vlm-muted">—</div>'
           + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color) + '</div>'
           + '<div class="c vlm-muted">' + f0(td.tk_lo5||cd.lo5) + '</div>'
           + '<div class="c" style="color:var(--red);">' + f0(td.tk_hi5||cd.hi5) + '</div>'
