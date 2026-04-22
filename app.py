@@ -267,29 +267,29 @@ body.light select.oi-sel option { background:#fff; color:#1a202c; }
 
 /* Monitor grid — 14 columns */
 .G { display:grid;
-     grid-template-columns:118px 80px 82px 76px 76px 90px 76px 100px 72px 80px 72px 80px 90px;
+     grid-template-columns:140px 90px 100px 84px 90px 110px 84px minmax(110px,1fr) 84px 94px 84px 94px 100px;
      gap:0; }
 .grid-head { background:var(--hdr); border-bottom:1px solid var(--acc);
              padding:4px 14px; position:sticky; top:49px; z-index:9; }
-.gh { color:var(--dim); font-size:11px; font-weight:700; letter-spacing:.5px;
-      text-transform:uppercase; text-align:right; padding:3px 4px;
+.gh { color:var(--dim); font-size:12px; font-weight:700; letter-spacing:.5px;
+      text-transform:uppercase; text-align:right; padding:4px 6px;
       white-space:nowrap; overflow:hidden; }
 .gh:first-child { text-align:left; }
 
-.agg-row { padding:7px 14px; cursor:pointer; align-items:center;
+.agg-row { padding:10px 14px; cursor:pointer; align-items:center;
            background:var(--surf); border-bottom:1px solid var(--bord);
            transition:background .1s; }
 .agg-row:hover { background:var(--surf2); }
-.ct-row  { padding:5px 14px; align-items:center; background:var(--bg);
+.ct-row  { padding:8px 14px; align-items:center; background:var(--bg);
            border-bottom:1px solid #1a2030; cursor:pointer; transition:background .1s; }
 .ct-row:hover { background:var(--surf2); }
 .ct-row.sel   { background:#0f1e35; border-left:3px solid var(--acc); }
 
-.c  { font-size:13px; font-weight:600; text-align:right; padding:2px 5px;
+.c  { font-size:15px; font-weight:700; text-align:right; padding:3px 6px;
       white-space:nowrap; overflow:hidden; color:var(--text); }
-.cl { text-align:left; padding:2px 5px; font-size:13px; }
+.cl { text-align:left; padding:3px 6px; font-size:15px; }
 .ticker-lbl { display:flex; align-items:center; gap:5px;
-              font-size:14px; font-weight:700; letter-spacing:1px; }
+              font-size:16px; font-weight:700; letter-spacing:1px; }
 .ticker-sub { font-size:11px; font-weight:600; color:var(--muted);
               margin-left:3px; letter-spacing:.5px; }
 .arr { font-size:9px; color:var(--muted); transition:transform .2s;
