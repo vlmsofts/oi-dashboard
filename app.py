@@ -1527,24 +1527,56 @@ def api_options_history():
         except Exception: pass
     from_dt = freq.args.get('from', '')
     to_dt   = freq.args.get('to', '')
+
+    def get_strike(r):
+        """Get strike from strike_px column, or parse from security_des if blank."""
+        sx = r.get('strike_px', '').strip()
+        if sx:
+            try: return float(sx)
+            except Exception: pass
+        # Parse from security_des e.g. 'CTN6C    90' -> 90.0
+        try:
+            sec = r.get('security_des', '').strip()
+            # Find the number after the C/P character
+            for i, ch in enumerate(sec):
+                if i > 3 and ch in ('C', 'P'):
+                    return float(sec[i+1:].strip())
+        except Exception: pass
+        return None
+
+    def get_pc(r):
+        """Get put/call from column, or parse from security_des."""
+        pc_val = r.get('put_call', '').strip()
+        if pc_val: return pc_val
+        try:
+            sec = r.get('security_des', '').strip()
+            for i, ch in enumerate(sec):
+                if i > 3 and ch in ('C', 'P'):
+                    return ch
+        except Exception: pass
+        return ''
+
     rows = []
     if OPT_FILE.exists():
         with open(OPT_FILE, 'r', encoding='utf-8', newline='') as f:
             for r in csv.DictReader(f):
                 try:
-                    if strike_f is not None and abs(float(r['strike_px']) - strike_f) > 0.01: continue
+                    row_strike = get_strike(r)
+                    row_pc     = get_pc(r)
+                    if strike_f is not None:
+                        if row_strike is None or abs(row_strike - strike_f) > 0.01: continue
                     if month and r['contract_month'] != month: continue
-                    if pc and r['put_call'] != pc: continue
+                    if pc and row_pc != pc: continue
                     if from_dt and r['date'] < from_dt: continue
                     if to_dt   and r['date'] > to_dt:   continue
                     rows.append({
                         'date':   r['date'],
                         'sec':    r['security_des'].strip(),
-                        'pc':     r['put_call'],
-                        'oi':     int(r['open_int'])   if r.get('open_int')   else 0,
-                        'chg':    int(r['oi_chg'])     if r.get('oi_chg') and r['oi_chg'] not in ('','None') else None,
+                        'pc':     row_pc,
+                        'oi':     int(r['open_int'])    if r.get('open_int')   else 0,
+                        'chg':    int(r['oi_chg'])      if r.get('oi_chg') and r['oi_chg'] not in ('','None') else None,
                         'settle': float(r['px_settle']) if r.get('px_settle') and r['px_settle'] != '' else None,
-                        'vol':    int(r['px_volume'])  if r.get('px_volume') and r['px_volume'] not in ('','None') else 0,
+                        'vol':    int(r['px_volume'])   if r.get('px_volume') and r['px_volume'] not in ('','None') else 0,
                     })
                 except Exception:
                     continue
@@ -1625,6 +1657,19 @@ def load_options():
                 prev_oi[r['security_des']] = int(r['open_int'])
     # Rebuild oi_chg from stored value (already computed) or fallback
     months = sorted({r['contract_month'] for r in today_rows}, key=mo_key)
+    def parse_strike(r):
+        sx = r.get('strike_px', '').strip()
+        if sx:
+            try: return float(sx)
+            except Exception: pass
+        try:
+            sec = r.get('security_des', '').strip()
+            for i, ch in enumerate(sec):
+                if i > 3 and ch in ('C', 'P'):
+                    return float(sec[i+1:].strip())
+        except Exception: pass
+        return 0.0
+
     result = {'last_date': last_date, 'months': months, 'calls': {}, 'puts': {}}
     for m in months:
         for pc, key in (('C','calls'), ('P','puts')):
@@ -1638,7 +1683,7 @@ def load_options():
                     vol    = int(r['px_volume'])   if r.get('px_volume') and r['px_volume'] not in ('','None') else 0
                     result[key][m].append({
                         'sec':    r['security_des'].strip(),
-                        'strike': float(r['strike_px']),
+                        'strike': parse_strike(r),
                         'oi':     oi,
                         'chg':    chg,
                         'settle': settle,
