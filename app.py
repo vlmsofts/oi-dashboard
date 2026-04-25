@@ -9,7 +9,8 @@ from datetime import datetime
 from flask import Flask, jsonify
 
 BASE_DIR  = pathlib.Path(__file__).parent
-DATA_FILE = BASE_DIR / 'data' / 'oi_data.csv'
+DATA_FILE    = BASE_DIR / 'data' / 'oi_data.csv'
+OPT_FILE     = BASE_DIR / 'data' / 'options_oi.csv'
 CSS_FILE  = BASE_DIR / 'vlm_design_system.css'
 
 app    = Flask(__name__)
@@ -387,6 +388,7 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
   <button class="vlm-sectab act" onclick="switchTab('monitor',this)">Monitor</button>
   <button class="vlm-sectab"     onclick="switchTab('seasonal',this)">Seasonal</button>
   <button class="vlm-sectab"     onclick="switchTab('table',this)">Table</button>
+  <button class="vlm-sectab"     onclick="switchTab('options',this)">Options</button>
 </div>
 
 <!-- MONITOR -->
@@ -438,6 +440,11 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
   </div>
 </div>
 
+<!-- OPTIONS -->
+<div class="tab-content" id="tab-options">
+  <div id="optRoot" style="padding:10px 14px;"></div>
+</div>
+
 <!-- TABLE -->
 <div class="tab-content" id="tab-table">
   <div class="tbl-outer">
@@ -475,6 +482,7 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
 
 <script>
 const DATA = %%DATA%%;
+const OPTDATA = %%OPTDATA%%;
 const CFG = {
   CT: {name:'COTTON NO.2', color:'#E8C547', ca:'rgba(232,197,71,0.12)'},
   SB: {name:'SUGAR NO.11', color:'#E07B54', ca:'rgba(224,123,84,0.12)'},
@@ -601,6 +609,7 @@ function switchTab(id, el) {
   el.classList.add('act');
   document.getElementById('tab-' + id).classList.add('act');
   if (id === 'seasonal') { populateSeasContract(); buildSeasonal(); }
+  if (id === 'options')  { buildOptions(); }
   if (id === 'table')    { populateTblContract();  buildTbl(); }
 }
 
@@ -1294,12 +1303,255 @@ initTooltip();
 populateTblContract();
 populateSeasContract();
 buildMonitor();
+
+/* ── Options Tab ── */
+var _optHistCache = null;
+
+function buildOptions() {
+  var root = document.getElementById('optRoot');
+  if (!root) return;
+  var od = OPTDATA;
+  if (!od || !od.months || !od.months.length) {
+    root.innerHTML = '<div style="padding:40px;color:var(--muted);font-size:13px;">No options data available.</div>';
+    return;
+  }
+
+  var GREEN='#22c55e', RED='#ef4444', DIM='#64748b', WHITE='#f1f5f9';
+  var DARK='#0d1520', ALT='#0a1018', MONTH_BG='#0f1e35', HDR_BG='#080f1a', GOLD='#E8C547';
+  var GRID = '1fr 1fr 1fr 1fr 1fr';
+
+  function fmtN(v)   { if(v===null||v===undefined||v==='') return '—'; return Number(v).toLocaleString(); }
+  function fmtS(v)   { if(v===null||v===undefined||v==='') return '—'; return Number(v).toFixed(2); }
+  function fmtC(v)   { if(v===null||v===undefined||v==='') return '—'; return (Number(v)>=0?'+':'')+Number(v).toLocaleString(); }
+  function cOI(oi)   { return oi>=5000?GOLD:oi>=1000?GREEN:WHITE; }
+  function cChg(v)   { if(v===null||v===undefined||v==='') return DIM; return v>0?GREEN:v<0?RED:DIM; }
+
+  function colHdr(label) {
+    return '<div style="font-size:11px;font-weight:700;color:'+DIM+';text-align:right;'+
+           'letter-spacing:.6px;padding:4px 8px;border-bottom:1px solid #1e3a5f;">'+label+'</div>';
+  }
+  function cell(content, color, size) {
+    return '<div style="font-size:'+(size||14)+'px;font-weight:700;color:'+(color||WHITE)+
+           ';text-align:right;padding:4px 8px;">'+content+'</div>';
+  }
+
+  function buildSection(label, color, pcKey, bg) {
+    var html = '<div style="padding:8px 14px 6px;background:'+bg+';border-left:4px solid '+color+
+               ';margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">'+
+               '<span style="font-size:13px;font-weight:700;letter-spacing:2px;color:'+color+';">◆ '+label+'</span>'+
+               '</div>';
+
+    od.months.forEach(function(month) {
+      var rows = (od[pcKey]&&od[pcKey][month]) ? od[pcKey][month] : [];
+      if (!rows.length) return;
+      var totOI  = rows.reduce(function(s,r){return s+r.oi;},0);
+      var totVol = rows.reduce(function(s,r){return s+(r.vol||0);},0);
+      var totChg = rows.reduce(function(s,r){return s+(r.chg||0);},0);
+
+      // Month header
+      html += '<div style="background:'+MONTH_BG+';padding:5px 14px;margin-top:4px;'+
+              'display:flex;align-items:center;justify-content:space-between;">'+
+              '<span style="font-size:13px;font-weight:700;color:'+color+';">'+month+'</span>'+
+              '<span style="font-size:11px;color:'+DIM+';">'+
+              'OI: <span style="color:'+WHITE+';">'+totOI.toLocaleString()+'</span>'+
+              '&nbsp;&nbsp;Vol: <span style="color:'+WHITE+';">'+totVol.toLocaleString()+'</span>'+
+              '&nbsp;&nbsp;OI Chg: <span style="color:'+cChg(totChg)+';">'+fmtC(totChg)+'</span>'+
+              '</span></div>';
+
+      // Column headers
+      html += '<div style="display:grid;grid-template-columns:'+GRID+';background:'+HDR_BG+';">'+
+              colHdr('STRIKE')+colHdr('OPEN INT')+colHdr('OI CHG')+colHdr('SETTLE')+colHdr('VOLUME')+
+              '</div>';
+
+      // Data rows
+      rows.forEach(function(r, idx) {
+        html += '<div style="display:grid;grid-template-columns:'+GRID+';background:'+(idx%2===0?DARK:ALT)+';">'+
+                cell(r.strike.toFixed(2))+
+                cell(fmtN(r.oi), cOI(r.oi))+
+                cell(fmtC(r.chg), cChg(r.chg))+
+                cell(fmtS(r.settle))+
+                cell(fmtN(r.vol), DIM)+
+                '</div>';
+      });
+
+      // Month subtotal row
+      html += '<div style="display:grid;grid-template-columns:'+GRID+';background:#0a1525;'+
+              'border-top:1px solid #1e3a5f;margin-bottom:8px;">'+
+              '<div style="font-size:11px;font-weight:700;color:'+DIM+';padding:4px 8px;text-align:right;">TOTAL</div>'+
+              cell(fmtN(totOI), GOLD)+
+              cell(fmtC(totChg), cChg(totChg))+
+              '<div></div>'+
+              cell(fmtN(totVol), DIM)+
+              '</div>';
+    });
+    return html;
+  }
+
+  // ── History search UI ──
+  // Build sorted unique strike list from all months
+  var allStrikes = [];
+  od.months.forEach(function(m) {
+    ['calls','puts'].forEach(function(k) {
+      if (od[k]&&od[k][m]) od[k][m].forEach(function(r) {
+        if (allStrikes.indexOf(r.strike)<0) allStrikes.push(r.strike);
+      });
+    });
+  });
+  allStrikes.sort(function(a,b){return a-b;});
+
+  var SEL = 'background:#0d1520;border:1px solid #2a3548;color:'+WHITE+';padding:4px 8px;font-size:12px;border-radius:3px;';
+  var histHtml = '<div style="background:#0a1525;border:1px solid #1e3a5f;border-radius:4px;'+
+                 'padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'+
+                 '<span style="font-size:11px;font-weight:700;letter-spacing:1px;color:'+DIM+';">HISTORY SEARCH</span>'+
+                 '<select id="optHMonth" style="'+SEL+'">'+
+                 '<option value="">All Months</option>'+
+                 od.months.map(function(m){return '<option>'+m+'</option>';}).join('')+
+                 '</select>'+
+                 '<select id="optHStrike" style="'+SEL+'">'+
+                 '<option value="">All Strikes</option>'+
+                 allStrikes.map(function(s){return '<option value="'+s+'">'+s.toFixed(2)+'</option>';}).join('')+
+                 '</select>'+
+                 '<select id="optHPC" style="'+SEL+'">'+
+                 '<option value="">C & P</option><option value="C">Calls</option><option value="P">Puts</option>'+
+                 '</select>'+
+                 '<span style="font-size:11px;color:'+DIM+';">FROM</span>'+
+                 '<input id="optHFrom" type="date" style="'+SEL+'">'+
+                 '<span style="font-size:11px;color:'+DIM+';">TO</span>'+
+                 '<input id="optHTo" type="date" style="'+SEL+'">'+
+                 '<button onclick="runOptHistory()" style="background:#1e3a5f;border:1px solid #3b82f6;'+
+                 'color:'+WHITE+';padding:4px 14px;font-size:12px;border-radius:3px;cursor:pointer;font-weight:700;">GO</button>'+
+                 '<button onclick="clearOptHistory()" '+
+                 'style="background:transparent;border:1px solid #2a3548;color:'+DIM+';'+
+                 'padding:4px 10px;font-size:12px;border-radius:3px;cursor:pointer;">CLEAR</button>'+
+                 '<span id="optHStatus" style="font-size:11px;color:'+DIM+';"></span>'+
+                 '</div>'+
+                 '<div id="optHResult"></div>';
+
+  // Main layout
+  var out = '<div style="display:flex;align-items:center;padding:8px 14px;'+
+            'border-bottom:1px solid #1e3a5f;margin-bottom:10px;">'+
+            '<span style="font-size:12px;font-weight:700;letter-spacing:2px;color:'+DIM+';">'+
+            'COTTON OPTIONS — OI BY CONTRACT MONTH</span>'+
+            '<span style="font-size:11px;color:#475569;margin-left:auto;">As of: '+od.last_date+'</span></div>';
+  out += histHtml;
+  out += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">';
+  out += '<div>'+buildSection('CALLS', GREEN, 'calls', '#0a2010')+'</div>';
+  out += '<div>'+buildSection('PUTS',  RED,   'puts',  '#20080a')+'</div>';
+  out += '</div>';
+  root.innerHTML = out;
+}
+
+function clearOptHistory() {
+  document.getElementById('optHResult').innerHTML = '';
+  document.getElementById('optHStatus').textContent = '';
+}
+
+function runOptHistory() {
+  var month  = document.getElementById('optHMonth').value;
+  var strike = document.getElementById('optHStrike').value;
+  var pc     = document.getElementById('optHPC').value;
+  var from   = document.getElementById('optHFrom').value;
+  var to     = document.getElementById('optHTo').value;
+  var status = document.getElementById('optHStatus');
+  var result = document.getElementById('optHResult');
+  status.textContent = 'Loading...';
+  result.innerHTML = '';
+
+  fetch('/api/options/history?month='+encodeURIComponent(month)+
+        '&strike='+encodeURIComponent(strike)+'&pc='+encodeURIComponent(pc)+
+        '&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to))
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (!data || !data.rows || !data.rows.length) {
+        status.textContent = 'No data found';
+        return;
+      }
+      status.textContent = data.rows.length + ' days';
+      var GREEN='#22c55e', RED='#ef4444', DIM='#64748b', WHITE='#f1f5f9', DARK='#0d1520', ALT='#0a1018';
+      var GOLD='#E8C547';
+      function cChg(v){ return v>0?GREEN:v<0?RED:DIM; }
+
+      var html = '<div style="margin-bottom:12px;">';
+      // Group by security_des
+      var groups = {};
+      data.rows.forEach(function(r) {
+        if (!groups[r.sec]) groups[r.sec] = [];
+        groups[r.sec].push(r);
+      });
+      Object.keys(groups).sort().forEach(function(sec) {
+        var rows = groups[sec];
+        html += '<div style="margin-bottom:12px;">'+
+                '<div style="background:#0f1e35;padding:5px 14px;font-size:12px;font-weight:700;color:'+
+                (rows[0].pc==='C'?GREEN:RED)+';">'+sec+'</div>';
+        html += '<div style="display:grid;grid-template-columns:100px 1fr 1fr 1fr 1fr;background:#080f1a;">'+
+                ['DATE','OPEN INT','OI CHG','SETTLE','VOLUME'].map(function(h){
+                  return '<div style="font-size:10px;font-weight:700;color:'+DIM+';text-align:right;'+
+                         'padding:3px 8px;letter-spacing:.5px;">'+h+'</div>';
+                }).join('')+'</div>';
+        rows.forEach(function(r, idx) {
+          html += '<div style="display:grid;grid-template-columns:100px 1fr 1fr 1fr 1fr;'+
+                  'background:'+(idx%2===0?DARK:ALT)+';">'+
+                  '<div style="font-size:13px;color:'+DIM+';padding:3px 8px;text-align:right;">'+r.date+'</div>'+
+                  '<div style="font-size:13px;font-weight:700;color:'+(r.oi>=5000?GOLD:r.oi>=1000?GREEN:WHITE)+
+                  ';text-align:right;padding:3px 8px;">'+Number(r.oi).toLocaleString()+'</div>'+
+                  '<div style="font-size:13px;color:'+cChg(r.chg)+';text-align:right;padding:3px 8px;">'+
+                  (r.chg!==null&&r.chg!==''?(r.chg>=0?'+':'')+Number(r.chg).toLocaleString():'—')+'</div>'+
+                  '<div style="font-size:13px;color:'+WHITE+';text-align:right;padding:3px 8px;">'+
+                  (r.settle?Number(r.settle).toFixed(2):'—')+'</div>'+
+                  '<div style="font-size:13px;color:'+DIM+';text-align:right;padding:3px 8px;">'+
+                  (r.vol?Number(r.vol).toLocaleString():'—')+'</div>'+
+                  '</div>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+      result.innerHTML = html;
+    })
+    .catch(function(e){ status.textContent = 'Error: '+e.message; });
+}
 </script>
 </body>
 </html>"""
 
 
 # ── Full history API endpoint ────────────────────────────────────────────────────
+@app.route('/api/options/history')
+def api_options_history():
+    from flask import request as freq
+    month  = freq.args.get('month', '')
+    strike = freq.args.get('strike', '')
+    pc     = freq.args.get('pc', '')
+    strike_f = None
+    if strike:
+        try: strike_f = float(strike)
+        except Exception: pass
+    from_dt = freq.args.get('from', '')
+    to_dt   = freq.args.get('to', '')
+    rows = []
+    if OPT_FILE.exists():
+        with open(OPT_FILE, 'r', encoding='utf-8', newline='') as f:
+            for r in csv.DictReader(f):
+                try:
+                    if strike_f is not None and abs(float(r['strike_px']) - strike_f) > 0.01: continue
+                    if month and r['contract_month'] != month: continue
+                    if pc and r['put_call'] != pc: continue
+                    if from_dt and r['date'] < from_dt: continue
+                    if to_dt   and r['date'] > to_dt:   continue
+                    rows.append({
+                        'date':   r['date'],
+                        'sec':    r['security_des'].strip(),
+                        'pc':     r['put_call'],
+                        'oi':     int(r['open_int'])   if r.get('open_int')   else 0,
+                        'chg':    int(r['oi_chg'])     if r.get('oi_chg') and r['oi_chg'] not in ('','None') else None,
+                        'settle': float(r['px_settle']) if r.get('px_settle') and r['px_settle'] != '' else None,
+                        'vol':    int(r['px_volume'])  if r.get('px_volume') and r['px_volume'] not in ('','None') else 0,
+                    })
+                except Exception:
+                    continue
+    rows.sort(key=lambda x: x['date'], reverse=True)
+    return jsonify({'rows': rows})
+
+
 @app.route('/api/history/<comm>')
 def api_history(comm):
     if not DATA_FILE.exists():
@@ -1326,6 +1578,7 @@ def api_history(comm):
 @app.route('/debug')
 def debug():
     data = load_data()
+    opts = load_options()
     if not data:
         return 'No data', 503
     out = {}
@@ -1342,15 +1595,70 @@ def debug():
 def health():
     return jsonify({'status': 'ok', 'version': __version__, 'data_exists': DATA_FILE.exists()})
 
+def load_options():
+    """Load options_oi.csv, return structured dict for the Options tab."""
+    if not OPT_FILE.exists():
+        return {}
+    MC_SORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    def mo_key(m):
+        try:
+            mo, yr = m.split()
+            return (int(yr), MC_SORT.index(mo))
+        except Exception:
+            return (9999, 0)
+    rows = []
+    try:
+        with open(OPT_FILE, 'r', encoding='utf-8', newline='') as f:
+            rows = list(csv.DictReader(f))
+    except Exception:
+        return {}
+    if not rows: return {}
+    last_date = max(r['date'] for r in rows)
+    today_rows = [r for r in rows if r['date'] == last_date]
+    # Build prev day OI for oi_chg display
+    dates = sorted({r['date'] for r in rows})
+    prev_date = dates[-2] if len(dates) >= 2 else None
+    prev_oi = {}
+    if prev_date:
+        for r in rows:
+            if r['date'] == prev_date and r.get('open_int'):
+                prev_oi[r['security_des']] = int(r['open_int'])
+    # Rebuild oi_chg from stored value (already computed) or fallback
+    months = sorted({r['contract_month'] for r in today_rows}, key=mo_key)
+    result = {'last_date': last_date, 'months': months, 'calls': {}, 'puts': {}}
+    for m in months:
+        for pc, key in (('C','calls'), ('P','puts')):
+            if m not in result[key]:
+                result[key][m] = []
+            for r in today_rows:
+                if r['contract_month'] == m and r['put_call'] == pc:
+                    oi     = int(r['open_int'])   if r.get('open_int')   else 0
+                    chg    = int(r['oi_chg'])      if r.get('oi_chg') and r['oi_chg'] not in ('','None') else None
+                    settle = float(r['px_settle']) if r.get('px_settle') and r['px_settle'] != '' else None
+                    vol    = int(r['px_volume'])   if r.get('px_volume') and r['px_volume'] not in ('','None') else 0
+                    result[key][m].append({
+                        'sec':    r['security_des'].strip(),
+                        'strike': float(r['strike_px']),
+                        'oi':     oi,
+                        'chg':    chg,
+                        'settle': settle,
+                        'vol':    vol,
+                    })
+            result[key][m].sort(key=lambda x: x['strike'])
+    return result
+
+
 @app.route('/')
 def index():
     data = load_data()
     if data is None:
         return ('<body style="background:#080b0f;color:#f8fafc;font-family:monospace;padding:40px;">'
                 '<h2>oi_data.csv not found — run oi_bootstrap.py first.</h2></body>'), 503
+    opts = load_options()
     css  = load_css()
     html = HTML.replace('%%CSS%%',       css)\
                .replace('%%DATA%%',      json.dumps(data))\
+               .replace('%%OPTDATA%%',   json.dumps(opts))\
                .replace('%%VERSION%%',   __version__)
     return html
 
