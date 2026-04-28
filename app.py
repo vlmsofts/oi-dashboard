@@ -1707,7 +1707,21 @@ def index():
                .replace('%%VERSION%%',   __version__)
     return html
 
-
+@app.route('/api/data', methods=['GET'])
+def api_data():
+    try:
+        as_of = datetime.fromtimestamp(DATA_FILE.stat().st_mtime).strftime('%Y-%m-%d')
+        rows = []
+        with open(DATA_FILE, 'r', encoding='utf-8', newline='') as f:
+            for r in csv.DictReader(f):
+                rows.append(dict(r))
+        resp = jsonify({'source': 'VLM Commodities — Open Interest Dashboard', 'as_of': as_of, 'data': rows})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp
+    except Exception as e:
+        resp = jsonify({'error': str(e)})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp, 500
 if __name__ == "__main__":
     print(f"VLM OI Monitor v{__version__} — http://127.0.0.1:8052")
     print(f"Data: {DATA_FILE}  exists={DATA_FILE.exists()}")
