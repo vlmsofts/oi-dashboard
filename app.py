@@ -1282,6 +1282,18 @@ async function buildTbl() {
 }
 
 /* ── Init ── */
+var _optHistCache = null;
+var _optComm = 'CT';
+var _optData = {};
+
+var OPT_COMM_CFG = {
+  CT: {label:'COTTON (CT)',  color:'#E8C547'},
+  KC: {label:'COFFEE (KC)',  color:'#C8956D'},
+  CC: {label:'COCOA (CC)',   color:'#A07855'},
+  SB: {label:'SUGAR (SB)',   color:'#E07B54'},
+};
+
+/* ── Init ── */
 setInterval(function() {
   var el = document.getElementById('clk');
   if (el) el.textContent = new Date().toLocaleTimeString('en-US',
@@ -1303,18 +1315,6 @@ initTooltip();
 populateTblContract();
 populateSeasContract();
 buildMonitor();
-
-/* ── Options Tab ── */
-var _optHistCache = null;
-var _optComm = 'CT';
-var _optData = {};   // keyed by commodity, cached after first fetch
-
-var OPT_COMM_CFG = {
-  CT: {label:'COTTON (CT)',  color:'#E8C547'},
-  KC: {label:'COFFEE (KC)',  color:'#C8956D'},
-  CC: {label:'COCOA (CC)',   color:'#A07855'},
-  SB: {label:'SUGAR (SB)',   color:'#E07B54'},
-};
 
 function setOptComm(comm, btn) {
   _optComm = comm;
@@ -1785,8 +1785,8 @@ def index():
     opts = load_options(comm='CT')
     css  = load_css()
     html = HTML.replace('%%CSS%%',       css)\
-               .replace('%%DATA%%',      json.dumps(data))\
-               .replace('%%OPTDATA%%',   json.dumps(opts))\
+               .replace('%%DATA%%',      json.dumps(data).replace('</', '<\\/'))\
+               .replace('%%OPTDATA%%',   json.dumps(opts).replace('</', '<\\/'))\
                .replace('%%VERSION%%',   __version__)
     return html
 
