@@ -1343,7 +1343,7 @@ function buildOptions() {
   Object.keys(OPT_COMM_CFG).forEach(function(c) {
     var cfg = OPT_COMM_CFG[c];
     selectorHtml += '<button class="vlm-btn opt-comm-btn'+(c===_optComm?' act':'')+
-      '" onclick="setOptComm(\''+c+'\',this)" '+
+      '" onclick="setOptComm(\\''+c+'\\',this)" '+
       'style="letter-spacing:1px;font-size:11px;">'+cfg.label+'</button>';
   });
   selectorHtml += '<span id="optLoadStatus" style="font-size:11px;color:'+DIM+';margin-left:8px;"></span>';
