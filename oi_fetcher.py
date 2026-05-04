@@ -12,7 +12,7 @@ Run at any time Bloomberg Terminal is open and logged in:
 
 Task Scheduler (recommended):
   Program:   pythonw.exe
-  Arguments: "<full path>\oi_fetcher.py"
+  Arguments: "<full path>/oi_fetcher.py"
   Trigger:   Daily at 9:35 AM EST, Monday–Friday
   (Bloomberg Terminal must be open and logged in when it fires)
 """
@@ -83,7 +83,10 @@ CSV_COLUMNS = ['date', 'commodity', 'contract', 'bbg_ticker',
 def log(msg):
     ts   = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     line = f'[{ts}] {msg}'
-    print(line)
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        print(line.encode('ascii', errors='replace').decode('ascii'))
     with open(LOG_FILE, 'a', encoding='utf-8') as f:
         f.write(line + '\n')
 
@@ -323,7 +326,7 @@ def main():
         return 0
 
     log(f'Last date in CSV : {last_date_str}')
-    log(f'Fetch window     : {fetch_from} → {fetch_to}')
+    log(f'Fetch window     : {fetch_from} -> {fetch_to}')
     log(f'Tickers          : {len(TICKERS)}')
 
     # Load prev OI for oi_chg calculation on the first new day
