@@ -268,8 +268,9 @@ body.light select.oi-sel option { background:#fff; color:#1a202c; }
 
 /* Monitor grid — 14 columns */
 .G { display:grid;
-     grid-template-columns:140px 90px 100px 84px 90px 110px 84px minmax(110px,1fr) 84px 94px 84px 94px 100px;
+     grid-template-columns:140px 90px 100px 84px 90px 110px 84px minmax(110px,1fr) 84px 94px 84px 94px 100px 120px;
      gap:0; }
+.oi-badge { display:inline-flex;align-items:center;gap:4px;border-radius:3px;padding:3px 8px;font-size:10px;font-weight:700;letter-spacing:.6px;white-space:nowrap;border-width:1px;border-style:solid; }
 .grid-head { background:var(--hdr); border-bottom:1px solid var(--acc);
              padding:4px 14px; position:sticky; top:49px; z-index:9; }
 .gh { color:var(--dim); font-size:12px; font-weight:700; letter-spacing:.5px;
@@ -380,6 +381,7 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
     <div class="vlm-dot"></div>
     <span class="vlm-asof" id="asof">Loading...</span>
     <span class="vlm-asof" id="clk"></span>
+    <a href="https://vlmdata.com" target="_blank" rel="noopener" style="color:var(--acc);text-decoration:none;font-size:11px;letter-spacing:.05em;font-family:'Courier New',monospace;">&#8592; vlmdata.com</a>
     <button class="vlm-theme-btn" id="themeBtn" onclick="toggleTheme()">LIGHT</button>
   </div>
 </div>
@@ -478,7 +480,8 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
 
 </div><!-- /main-wrap -->
 <div class="vlm-footer">VLM COMMODITIES — OI MONITOR &nbsp;·&nbsp; BLOOMBERG EOD &nbsp;·&nbsp;
-  UPDATES DAILY 09:35 EST &nbsp;·&nbsp; v%%VERSION%%</div>
+  UPDATES DAILY 09:35 EST &nbsp;·&nbsp; v%%VERSION%% &nbsp;·&nbsp;
+  <a href="https://vlmdata.com" target="_blank" rel="noopener" style="color:var(--acc);text-decoration:none;">vlmdata.com</a></div>
 
 <script>
 const DATA = %%DATA%%;
@@ -668,6 +671,35 @@ function makeSpark(sparkData, val, lo5, hi5, lo15, hi15, color) {
 /* ═══════════════════════════════════════════════════════════
    MONITOR
 ═══════════════════════════════════════════════════════════ */
+function makeSignalBadge(cd) {
+  if (!cd || !cd.lo5 || !cd.hi5 || cd.hi5 <= cd.lo5) return '<div class="c">—</div>';
+  var pct = Math.round((cd.agg_oi - cd.lo5) / (cd.hi5 - cd.lo5) * 100);
+  pct = Math.max(0, Math.min(100, pct));
+
+  // OI trend: latest vs 10-day avg from 5-15 days ago in sparkline
+  var spark = cd.sparkline || [];
+  var trendUp = null;
+  if (spark.length >= 15) {
+    var cur      = spark[spark.length - 1];
+    var baseline = 0;
+    for (var _i = spark.length - 15; _i < spark.length - 5; _i++) baseline += spark[_i];
+    baseline /= 10;
+    trendUp = cur > baseline;
+  }
+
+  var col = pct >= 80 ? '#ef4444' : pct >= 60 ? '#f97316' : pct >= 30 ? '#fbbf24' : '#22c55e';
+  var bg  = pct >= 80 ? 'rgba(239,68,68,.12)' : pct >= 60 ? 'rgba(249,115,22,.10)' : pct >= 30 ? 'rgba(251,191,36,.10)' : 'rgba(34,197,94,.10)';
+  var aCl = trendUp === null ? '' : trendUp ? '#22c55e' : '#ef4444';
+  var arr = trendUp === null ? '' : trendUp ? '▲' : '▼';
+  var tip = pct + 'th %ile of 5yr range' + (trendUp !== null ? (trendUp ? ' · EXPANDING' : ' · CONTRACTING') : '');
+
+  return '<div class="c" style="padding:3px 6px;">'
+    + '<span class="oi-badge" style="color:' + col + ';background:' + bg + ';border-color:' + col + '55;" title="' + tip + '">'
+    + pct + '<span style="font-size:9px;">%</span>'
+    + (arr ? '<span style="color:' + aCl + ';font-size:12px;line-height:1;">' + arr + '</span>' : '')
+    + '</span></div>';
+}
+
 function buildMonitor() {
   const body = document.getElementById('monBody');
   body.innerHTML = '';
@@ -687,7 +719,8 @@ function buildMonitor() {
     + '<div class="gh">5yr Hi OI</div>'
     + '<div class="gh">15yr Lo OI</div>'
     + '<div class="gh">15yr Hi OI</div>'
-    + '<div class="gh">1st Notice</div>';
+    + '<div class="gh">1st Notice</div>'
+    + '<div class="gh" title="5yr percentile + OI trend direction">5yr %ile</div>';
   body.appendChild(hdr);
 
   /* Tooltip delegation for .oi-cell elements */
@@ -756,7 +789,8 @@ function buildMonitor() {
       + '<div class="c" style="color:var(--red);">' + f0(cd.hi5) + '</div>'
       + '<div class="c vlm-muted">' + f0(cd.lo15) + '</div>'
       + '<div class="c vlm-muted">' + f0(cd.hi15) + '</div>'
-      + '<div class="c fn">' + (front.first_notice || '—') + '</div>';
+      + '<div class="c fn">' + (front.first_notice || '—') + '</div>'
+      + makeSignalBadge(cd);
     ar.addEventListener('click', function() {
       expanded = isExp ? null : comm; selKey = null;
       if (expanded) ensureHist(expanded).then(function(){ buildMonitor(); });
@@ -788,7 +822,8 @@ function buildMonitor() {
           + '<div class="c" style="color:var(--red);">' + f0(td.tk_hi5||cd.hi5) + '</div>'
           + '<div class="c vlm-muted">' + f0(td.tk_lo15||cd.lo15) + '</div>'
           + '<div class="c vlm-muted">' + f0(td.tk_hi15||cd.hi15) + '</div>'
-          + '<div class="c fn">' + (td.first_notice || '—') + '</div>';
+          + '<div class="c fn">' + (td.first_notice || '—') + '</div>'
+          + '<div class="c"></div>';
 
         cr.addEventListener('click', function(e) {
           e.stopPropagation();
