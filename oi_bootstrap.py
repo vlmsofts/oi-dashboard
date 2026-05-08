@@ -1,14 +1,14 @@
 """
 oi_bootstrap.py — VLM Open Interest Monitor
 ONE-TIME script to pull full historical daily OI + settle from Bloomberg
-using BDH (historical data) with generic rolling tickers.
+using BDH (historical data) with month-specific generic rolling tickers.
 Writes data/oi_data.csv from scratch — run this ONCE before starting
-the daily oi_fetcher.py Task Scheduler job.
+the daily vlm_master_fetch.py Task Scheduler job.
 
 Bloomberg Terminal must be open and logged in.
 
 Usage (in PowerShell):
-  python "C:/Users/Louis/OneDrive - VLM Commodities LTD/Desktop/Open interest dashboard/oi_bootstrap.py"
+  python oi_bootstrap.py
   python oi_bootstrap.py --start 2015-01-01
   python oi_bootstrap.py --start 2010-01-01 --end 2025-04-20
 """
@@ -21,44 +21,55 @@ DATA_DIR  = BASE_DIR / 'data'
 DATA_FILE = DATA_DIR / 'oi_data.csv'
 LOG_FILE  = BASE_DIR / 'oi_bootstrap.log'
 
-CSV_COLUMNS = ['date', 'commodity', 'contract', 'bbg_ticker', 'settle', 'open_int', 'oi_chg']
+CSV_COLUMNS = ['date', 'commodity', 'contract', 'bbg_ticker',
+               'settle', 'open_int', 'oi_chg', 'first_notice', 'last_trade']
 
-# Generic rolling Bloomberg tickers — same as oi_fetcher.py.
-# BDH on these returns the historical time series of each generic slot.
-# CT1 on 2015-01-01 returns the front month that was active on that date, etc.
+# Month-specific generic tickers — Bloomberg rolls these automatically.
+# CTJUL1 is always the front July contract, CTJUL2 always the second July, etc.
+# No numbered slot generics (CT1-CT7) — those overlap and distort history.
 TICKERS = {
-    # ── Cotton No.2 ────────────────────────────────
-    'CT1 Comdty':     ('CT', 'CT1'),
-    'CT2 Comdty':     ('CT', 'CT2'),
-    'CTDEC1 Comdty':  ('CT', 'CT DEC1'),
-    'CTMAR1 Comdty':  ('CT', 'CT MAR1'),
-    'CTMAY1 Comdty':  ('CT', 'CT MAY1'),
-    'CTJUL1 Comdty':  ('CT', 'CT JUL1'),
-    'CTOCT1 Comdty':  ('CT', 'CT OCT1'),
-
-    # ── Sugar No.11 ────────────────────────────────
-    'SB1 Comdty':     ('SB', 'SB1'),
-    'SB2 Comdty':     ('SB', 'SB2'),
-    'SBMAR1 Comdty':  ('SB', 'SB MAR1'),
-    'SBMAY1 Comdty':  ('SB', 'SB MAY1'),
-    'SBJUL1 Comdty':  ('SB', 'SB JUL1'),
-    'SBOCT1 Comdty':  ('SB', 'SB OCT1'),
-
-    # ── Coffee C ───────────────────────────────────
-    'KC1 Comdty':     ('KC', 'KC1'),
-    'KC2 Comdty':     ('KC', 'KC2'),
-    'KCMAY1 Comdty':  ('KC', 'KC MAY1'),
-    'KCJUL1 Comdty':  ('KC', 'KC JUL1'),
-    'KCSEP1 Comdty':  ('KC', 'KC SEP1'),
-    'KCDEC1 Comdty':  ('KC', 'KC DEC1'),
-
-    # ── Cocoa ──────────────────────────────────────
-    'CC1 Comdty':     ('CC', 'CC1'),
-    'CC2 Comdty':     ('CC', 'CC2'),
-    'CCMAY1 Comdty':  ('CC', 'CC MAY1'),
-    'CCJUL1 Comdty':  ('CC', 'CC JUL1'),
-    'CCSEP1 Comdty':  ('CC', 'CC SEP1'),
-    'CCDEC1 Comdty':  ('CC', 'CC DEC1'),
+    # ── Cotton No.2  (Mar/May/Jul/Oct/Dec × 2) ────────────────────────────────
+    'CTMAR1 Comdty': ('CT', 'CTMAR1'),
+    'CTMAY1 Comdty': ('CT', 'CTMAY1'),
+    'CTJUL1 Comdty': ('CT', 'CTJUL1'),
+    'CTOCT1 Comdty': ('CT', 'CTOCT1'),
+    'CTDEC1 Comdty': ('CT', 'CTDEC1'),
+    'CTMAR2 Comdty': ('CT', 'CTMAR2'),
+    'CTMAY2 Comdty': ('CT', 'CTMAY2'),
+    'CTJUL2 Comdty': ('CT', 'CTJUL2'),
+    'CTOCT2 Comdty': ('CT', 'CTOCT2'),
+    'CTDEC2 Comdty': ('CT', 'CTDEC2'),
+    # ── Sugar No.11  (Mar/May/Jul/Oct × 2) ────────────────────────────────────
+    'SBMAR1 Comdty': ('SB', 'SBMAR1'),
+    'SBMAY1 Comdty': ('SB', 'SBMAY1'),
+    'SBJUL1 Comdty': ('SB', 'SBJUL1'),
+    'SBOCT1 Comdty': ('SB', 'SBOCT1'),
+    'SBMAR2 Comdty': ('SB', 'SBMAR2'),
+    'SBMAY2 Comdty': ('SB', 'SBMAY2'),
+    'SBJUL2 Comdty': ('SB', 'SBJUL2'),
+    'SBOCT2 Comdty': ('SB', 'SBOCT2'),
+    # ── Coffee C  (Mar/May/Jul/Sep/Dec × 2) ───────────────────────────────────
+    'KCMAR1 Comdty': ('KC', 'KCMAR1'),
+    'KCMAY1 Comdty': ('KC', 'KCMAY1'),
+    'KCJUL1 Comdty': ('KC', 'KCJUL1'),
+    'KCSEP1 Comdty': ('KC', 'KCSEP1'),
+    'KCDEC1 Comdty': ('KC', 'KCDEC1'),
+    'KCMAR2 Comdty': ('KC', 'KCMAR2'),
+    'KCMAY2 Comdty': ('KC', 'KCMAY2'),
+    'KCJUL2 Comdty': ('KC', 'KCJUL2'),
+    'KCSEP2 Comdty': ('KC', 'KCSEP2'),
+    'KCDEC2 Comdty': ('KC', 'KCDEC2'),
+    # ── Cocoa  (Mar/May/Jul/Sep/Dec × 2) ──────────────────────────────────────
+    'CCMAR1 Comdty': ('CC', 'CCMAR1'),
+    'CCMAY1 Comdty': ('CC', 'CCMAY1'),
+    'CCJUL1 Comdty': ('CC', 'CCJUL1'),
+    'CCSEP1 Comdty': ('CC', 'CCSEP1'),
+    'CCDEC1 Comdty': ('CC', 'CCDEC1'),
+    'CCMAR2 Comdty': ('CC', 'CCMAR2'),
+    'CCMAY2 Comdty': ('CC', 'CCMAY2'),
+    'CCJUL2 Comdty': ('CC', 'CCJUL2'),
+    'CCSEP2 Comdty': ('CC', 'CCSEP2'),
+    'CCDEC2 Comdty': ('CC', 'CCDEC2'),
 }
 
 
@@ -72,7 +83,7 @@ def log(msg):
 
 def fetch_bdh(start_str, end_str):
     """
-    Pull daily PX_LAST + OPEN_INT for every generic ticker via Bloomberg BDH.
+    Pull daily PX_LAST + OPEN_INT for every ticker via Bloomberg BDH.
     Returns dict: { bbg_ticker: [ {'date': 'YYYY-MM-DD', 'settle': x, 'open_int': y}, ... ] }
     """
     try:
@@ -97,19 +108,19 @@ def fetch_bdh(start_str, end_str):
 
         svc     = session.getService('//blp/refdata')
         results = {}
+        total   = len(TICKERS)
 
-        # BDH must be sent one ticker at a time
-        total = len(TICKERS)
         for idx, (ticker, (commodity, contract)) in enumerate(TICKERS.items(), 1):
             log(f'  [{idx:02d}/{total}] Fetching {ticker} ...')
             req = svc.createRequest('HistoricalDataRequest')
             req.getElement('securities').appendValue(ticker)
             req.getElement('fields').appendValue('PX_LAST')
             req.getElement('fields').appendValue('OPEN_INT')
-            req.set('startDate', start_str.replace('-', ''))   # YYYYMMDD
+            req.getElement('fields').appendValue('FUT_NOTICE_FIRST')
+            req.getElement('fields').appendValue('LAST_TRADEABLE_DT')
+            req.set('startDate', start_str.replace('-', ''))
             req.set('endDate',   end_str.replace('-', ''))
             req.set('periodicitySelection', 'DAILY')
-            # Only return actual trading days — cleaner data, no fill needed
             req.set('nonTradingDayFillOption', 'ACTIVE_DAYS_ONLY')
             session.sendRequest(req)
 
@@ -122,21 +133,35 @@ def fetch_bdh(start_str, end_str):
                         sd       = msg.getElement('securityData')
                         fd_array = sd.getElement('fieldData')
                         for j in range(fd_array.numValues()):
-                            fd    = fd_array.getValue(j)
+                            fd = fd_array.getValue(j)
                             d_val = fd.getElementAsDatetime('date')
                             dt    = f'{d_val.year:04d}-{d_val.month:02d}-{d_val.day:02d}'
-                            px    = None
-                            oi    = None
+                            px = oi = fn = lt = None
                             if fd.hasElement('PX_LAST') and not fd.getElement('PX_LAST').isNull():
-                                raw_px = fd.getElementAsFloat('PX_LAST')
-                                if raw_px and raw_px > 0:
-                                    px = round(float(raw_px), 2)
+                                raw = fd.getElementAsFloat('PX_LAST')
+                                if raw and raw > 0:
+                                    px = round(float(raw), 2)
                             if fd.hasElement('OPEN_INT') and not fd.getElement('OPEN_INT').isNull():
-                                raw_oi = fd.getElementAsFloat('OPEN_INT')
-                                if raw_oi and raw_oi > 0:
-                                    oi = int(raw_oi)
+                                raw = fd.getElementAsFloat('OPEN_INT')
+                                if raw and raw > 0:
+                                    oi = int(raw)
+                            if fd.hasElement('FUT_NOTICE_FIRST') and not fd.getElement('FUT_NOTICE_FIRST').isNull():
+                                try:
+                                    v = fd.getElementAsDatetime('FUT_NOTICE_FIRST')
+                                    fn = f'{v.year:04d}-{v.month:02d}-{v.day:02d}'
+                                except Exception:
+                                    pass
+                            if fd.hasElement('LAST_TRADEABLE_DT') and not fd.getElement('LAST_TRADEABLE_DT').isNull():
+                                try:
+                                    v = fd.getElementAsDatetime('LAST_TRADEABLE_DT')
+                                    lt = f'{v.year:04d}-{v.month:02d}-{v.day:02d}'
+                                except Exception:
+                                    pass
                             if px is not None or oi is not None:
-                                ticker_rows.append({'date': dt, 'settle': px, 'open_int': oi})
+                                ticker_rows.append({
+                                    'date': dt, 'settle': px, 'open_int': oi,
+                                    'first_notice': fn or '', 'last_trade': lt or '',
+                                })
                 if ev.eventType() == blpapi.Event.RESPONSE:
                     done = True
 
@@ -152,33 +177,35 @@ def fetch_bdh(start_str, end_str):
 
 
 def write_csv(raw):
-    """Convert raw BDH results to flat CSV with oi_chg per ticker series."""
+    """Convert raw BDH results to flat CSV with oi_chg calculated per ticker series."""
     DATA_DIR.mkdir(exist_ok=True)
     all_rows = []
 
     for ticker, (commodity, contract) in TICKERS.items():
         ticker_rows = raw.get(ticker, [])
         if not ticker_rows:
-            log(f'  WARNING: no rows returned for {ticker}')
+            log(f'  WARNING: no rows for {ticker}')
             continue
-        ticker_rows.sort(key=lambda r: r['date'])   # ascending so oi_chg works
-        prev_oi = None
+        ticker_rows.sort(key=lambda r: r['date'])
+        prev_oi    = None
+        prev_contract = None  # track contract code to null oi_chg on roll
         for r in ticker_rows:
             oi     = r['open_int']
             oi_chg = (oi - prev_oi) if (oi is not None and prev_oi is not None) else ''
             all_rows.append({
-                'date':       r['date'],
-                'commodity':  commodity,
-                'contract':   contract,
-                'bbg_ticker': ticker,
-                'settle':     r['settle']  if r['settle']   is not None else '',
-                'open_int':   oi           if oi            is not None else '',
-                'oi_chg':     oi_chg,
+                'date':         r['date'],
+                'commodity':    commodity,
+                'contract':     contract,   # e.g. 'CTJUL1' — the Bloomberg ticker label
+                'bbg_ticker':   ticker,
+                'settle':       r['settle']       if r['settle']       is not None else '',
+                'open_int':     oi                if oi                is not None else '',
+                'oi_chg':       oi_chg,
+                'first_notice': r['first_notice'],
+                'last_trade':   r['last_trade'],
             })
             if oi is not None:
                 prev_oi = oi
 
-    # Sort by date asc, then commodity, then contract label
     all_rows.sort(key=lambda r: (r['date'], r['commodity'], r['contract']))
 
     with open(DATA_FILE, 'w', encoding='utf-8', newline='') as f:
@@ -187,15 +214,14 @@ def write_csv(raw):
         writer.writerows(all_rows)
 
     log(f'Wrote {len(all_rows):,} total rows to {DATA_FILE}')
-    log(f'Date range in file: {all_rows[0]["date"]} to {all_rows[-1]["date"]}')
+    if all_rows:
+        log(f'Date range in file: {all_rows[0]["date"]} to {all_rows[-1]["date"]}')
 
 
 def main():
     parser = argparse.ArgumentParser(description='Bootstrap historical OI data from Bloomberg.')
-    parser.add_argument('--start', default='2008-01-01',
-                        help='Start date YYYY-MM-DD  (default: 2008-01-01)')
-    parser.add_argument('--end',   default=date.today().strftime('%Y-%m-%d'),
-                        help='End date YYYY-MM-DD  (default: today)')
+    parser.add_argument('--start', default='2008-01-01')
+    parser.add_argument('--end',   default=date.today().strftime('%Y-%m-%d'))
     args = parser.parse_args()
 
     log('--- oi_bootstrap.py started ---')
@@ -203,7 +229,6 @@ def main():
     log(f'Tickers    : {len(TICKERS)}')
     log(f'Output     : {DATA_FILE}')
 
-    # Back up existing file if there is one
     if DATA_FILE.exists():
         backup = DATA_FILE.with_suffix('.bak')
         shutil.copy(DATA_FILE, backup)
@@ -216,7 +241,7 @@ def main():
 
     write_csv(raw)
     log('--- oi_bootstrap.py complete ---')
-    log('Next step: start the daily oi_fetcher.py Task Scheduler job.')
+    log('Next step: run vlm_master_fetch.py daily via Task Scheduler.')
     return 0
 
 

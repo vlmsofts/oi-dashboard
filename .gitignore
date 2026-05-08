@@ -1,1 +1,30 @@
-﻿
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+
+# Bloomberg bootstrap backups
+*.bak
+*.bak2
+*.bak_*
+
+# Generated output (WhatsApp images, debug renders)
+output/
+_debug_rendered.html
+
+# IDE
+.vs/
+
+# Temporary / archived files
+*.txt
+VLM_OI_Dashboard_Handoff_v2.md
+
+# Old / debug / one-off scripts
+_check_js.py
+fix_fnd.py
+migrate_options_commodity.py
+test_*.py
+build_whatsapp_oi old all commods.py
