@@ -144,7 +144,7 @@ def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
         return DIM
 
     # ── Futures rows ────────────────────────────────────────────────
-    FCOLS = '140px 80px 130px 108px 120px 190px'
+    FCOLS = '190px 110px 175px 148px 165px 260px'
     fut_rows = ''
     for i, r in enumerate(futures):
         bg = ROW1 if i % 2 == 0 else ROW2
@@ -153,27 +153,28 @@ def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
         fut_rows += f"""
         <div style="display:grid;grid-template-columns:{FCOLS};
                     background:{bg};padding:7px 16px;align-items:center;border-bottom:1px solid #e2e8f0;">
-          <div style="font-size:15px;font-weight:700;color:{TICKER};">{r['ticker']}</div>
-          <div style="font-size:14px;color:{DIM};text-align:right;">{r['cont']}</div>
-          <div style="font-size:15px;font-weight:700;color:{oi_color};text-align:right;">{r['oi']:,}</div>
-          <div style="font-size:15px;font-weight:700;color:{chg_color};text-align:right;">{fc(r['oi_chg'])}</div>
-          <div style="font-size:15px;color:{TEXT};text-align:right;">{r['settle']:.2f}</div>
-          <div style="font-size:14px;color:{DIM};text-align:right;">{r['fnd'] or '—'}</div>
+          <div style="font-size:20px;font-weight:700;color:{TICKER};">{r['ticker']}</div>
+          <div style="font-size:18px;color:{DIM};text-align:right;">{r['cont']}</div>
+          <div style="font-size:20px;font-weight:700;color:{oi_color};text-align:right;">{r['oi']:,}</div>
+          <div style="font-size:20px;font-weight:700;color:{chg_color};text-align:right;">{fc(r['oi_chg'])}</div>
+          <div style="font-size:20px;color:{TEXT};text-align:right;">{r['settle']:.2f}</div>
+          <div style="font-size:18px;color:{DIM};text-align:right;">{r['fnd'] or '—'}</div>
         </div>"""
     # ── Totals bar ──────────────────────────────────────────────────
     tot_color = color_chg(agg_chg)
     fut_rows += f"""
         <div style="display:grid;grid-template-columns:{FCOLS};
                     background:#1e293b;padding:8px 16px;align-items:center;">
-          <div style="font-size:13px;font-weight:700;color:#f1f5f9;letter-spacing:1px;">TOTAL</div>
+          <div style="font-size:17px;font-weight:700;color:#f1f5f9;letter-spacing:1px;">TOTAL</div>
           <div></div>
-          <div style="font-size:16px;font-weight:700;color:{GOLD};text-align:right;">{agg_oi:,}</div>
-          <div style="font-size:16px;font-weight:700;color:{tot_color};text-align:right;">{fc(agg_chg)}</div>
+          <div style="font-size:20px;font-weight:700;color:{GOLD};text-align:right;">{agg_oi:,}</div>
+          <div style="font-size:20px;font-weight:700;color:{tot_color};text-align:right;">{fc(agg_chg)}</div>
           <div></div>
           <div></div>
         </div>"""
 
     # ── Options top 10 rows ─────────────────────────────────────────
+    OCOLS = '252px 130px 62px 164px 152px 142px 146px'
     opt_rows = ''
     for i, r in enumerate(opts):
         bg = ROW1 if i % 2 == 0 else ROW2
@@ -181,22 +182,22 @@ def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
         chg_color = color_chg(r['chg'])
         oi_color  = AMBER if r['oi'] >= 5000 else GREEN if r['oi'] >= 1000 else TEXT
         opt_rows += f"""
-        <div style="display:grid;grid-template-columns:185px 95px 46px 120px 112px 105px 105px;
+        <div style="display:grid;grid-template-columns:{OCOLS};
                     background:{bg};padding:7px 16px;align-items:center;border-bottom:1px solid #e2e8f0;">
-          <div style="font-size:14px;font-weight:700;color:{TEXT};">{r['sec']}</div>
-          <div style="font-size:13px;color:{DIM};text-align:right;">{r['month']}</div>
-          <div style="font-size:14px;font-weight:700;color:{pc_color};text-align:center;">{r['pc']}</div>
-          <div style="font-size:15px;font-weight:700;color:{oi_color};text-align:right;">{r['oi']:,}</div>
-          <div style="font-size:15px;font-weight:700;color:{chg_color};text-align:right;">{fc(r['chg'])}</div>
-          <div style="font-size:14px;color:{TEXT};text-align:right;">{f"{r['settle']:.2f}" if r['settle'] else "—"}</div>
-          <div style="font-size:14px;color:{DIM};text-align:right;">{r['vol']:,}</div>
+          <div style="font-size:20px;font-weight:700;color:{TEXT};">{r['sec']}</div>
+          <div style="font-size:18px;color:{DIM};text-align:right;">{r['month']}</div>
+          <div style="font-size:20px;font-weight:700;color:{pc_color};text-align:center;">{r['pc']}</div>
+          <div style="font-size:20px;font-weight:700;color:{oi_color};text-align:right;">{r['oi']:,}</div>
+          <div style="font-size:20px;font-weight:700;color:{chg_color};text-align:right;">{fc(r['chg'])}</div>
+          <div style="font-size:18px;color:{TEXT};text-align:right;">{f"{r['settle']:.2f}" if r['settle'] else "—"}</div>
+          <div style="font-size:18px;color:{DIM};text-align:right;">{r['vol']:,}</div>
         </div>"""
 
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
   * {{ box-sizing:border-box; margin:0; padding:0; }}
-  body {{ background:{PAGE}; font-family:'Segoe UI',sans-serif; width:800px; }}
+  body {{ background:{PAGE}; font-family:'Segoe UI',sans-serif; width:1080px; }}
 </style></head><body>
 
 <!-- Header -->
@@ -204,34 +205,34 @@ def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
             align-items:center;justify-content:space-between;
             border-bottom:2px solid {GOLD};">
   <div>
-    <div style="font-size:12px;font-weight:700;letter-spacing:2px;color:#94a3b8;">VLM COMMODITIES</div>
-    <div style="font-size:22px;font-weight:700;color:#f1f5f9;">{COMM_NAMES.get(comm, comm)} OPEN INTEREST MONITOR</div>
+    <div style="font-size:16px;font-weight:700;letter-spacing:2px;color:#94a3b8;">VLM COMMODITIES</div>
+    <div style="font-size:26px;font-weight:700;color:#f1f5f9;">{COMM_NAMES.get(comm, comm)} OPEN INTEREST MONITOR</div>
   </div>
-  <div style="font-size:15px;font-weight:600;color:#cbd5e1;">As of: {as_of}</div>
+  <div style="font-size:18px;font-weight:600;color:#cbd5e1;">As of: {as_of}</div>
 </div>
 
 <!-- SECTION 1: FUTURES -->
 <div style="background:{SECT};padding:6px 16px;border-left:4px solid {GOLD};margin-top:2px;">
-  <span style="font-size:12px;font-weight:700;letter-spacing:2px;color:{TEXT};">◆ {COMM_NAMES.get(comm, comm)} FUTURES — OPEN INTEREST</span>
+  <span style="font-size:16px;font-weight:700;letter-spacing:2px;color:{TEXT};">◆ {COMM_NAMES.get(comm, comm)} FUTURES — OPEN INTEREST</span>
 </div>
 
 <!-- Futures header -->
-<div style="display:grid;grid-template-columns:140px 80px 130px 108px 120px 190px;
+<div style="display:grid;grid-template-columns:190px 110px 175px 148px 165px 260px;
             background:{HDR};padding:5px 16px;border-bottom:1px solid #1e3a5f;">
-  {''.join(f'<div style="font-size:12px;font-weight:700;color:#94a3b8;text-align:right;letter-spacing:.6px;">{h}</div>'
+  {''.join(f'<div style="font-size:16px;font-weight:700;color:#94a3b8;text-align:right;letter-spacing:.6px;">{h}</div>'
            for h in ['TICKER','FUT CONT','OPEN INT','OI CHG','SETTLE PX','1ST NOTICE'])}
 </div>
 {fut_rows}
 
 <!-- SECTION 2: OPTIONS TOP 10 -->
 <div style="background:{SECT};padding:6px 16px;border-left:4px solid {GREEN};margin-top:8px;">
-  <span style="font-size:12px;font-weight:700;letter-spacing:2px;color:{TEXT};">◆ TOP 10 OPTIONS — LARGEST OI CHANGES (DAY OVER DAY)</span>
+  <span style="font-size:16px;font-weight:700;letter-spacing:2px;color:{TEXT};">◆ TOP 10 OPTIONS — LARGEST OI CHANGES (DAY OVER DAY)</span>
 </div>
 
 <!-- Options header -->
-<div style="display:grid;grid-template-columns:185px 95px 46px 120px 112px 105px 105px;
+<div style="display:grid;grid-template-columns:252px 130px 62px 164px 152px 142px 146px;
             background:{HDR};padding:5px 16px;border-bottom:1px solid #1e3a5f;">
-  {''.join(f'<div style="font-size:12px;font-weight:700;color:#94a3b8;text-align:right;letter-spacing:.6px;">{h}</div>'
+  {''.join(f'<div style="font-size:16px;font-weight:700;color:#94a3b8;text-align:right;letter-spacing:.6px;">{h}</div>'
            for h in ['TICKER','MONTH','P/C','OPEN INT','OI CHG','SETTLE','VOLUME'])}
 </div>
 {opt_rows}
@@ -239,8 +240,8 @@ def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
 <!-- Footer -->
 <div style="background:{HDR};padding:8px 16px;border-top:1px solid #1e3a5f;margin-top:2px;
             display:flex;justify-content:space-between;align-items:center;">
-  <span style="font-size:10px;color:#64748b;letter-spacing:1px;">VLM COMMODITIES LTD — BLOOMBERG EOD — UPDATES DAILY 09:35 EST</span>
-  <span style="font-size:10px;color:#64748b;">{datetime.now().strftime('%B %d, %Y')}</span>
+  <span style="font-size:14px;color:#64748b;letter-spacing:1px;">VLM COMMODITIES LTD — BLOOMBERG EOD — UPDATES DAILY 09:35 EST</span>
+  <span style="font-size:14px;color:#64748b;">{datetime.now().strftime('%B %d, %Y')}</span>
 </div>
 
 </body></html>"""
@@ -266,10 +267,11 @@ def render_png(html, png_path):
         browser = p.chromium.launch()
         context = browser.new_context(device_scale_factor=2)
         page    = context.new_page()
-        page.set_viewport_size({'width': 800, 'height': 1800})
+        page.set_viewport_size({'width': 1080, 'height': 1800})
         page.set_content(html, wait_until='networkidle')
         clip_h = page.evaluate(_CLIP_JS)
-        page.screenshot(path=str(png_path), clip={'x': 0, 'y': 0, 'width': 800, 'height': clip_h})
+        clip_w = page.evaluate("() => Math.ceil(document.documentElement.scrollWidth)")
+        page.screenshot(path=str(png_path), clip={'x': 0, 'y': 0, 'width': clip_w, 'height': clip_h})
         browser.close()
     return str(png_path)
 
