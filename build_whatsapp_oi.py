@@ -27,16 +27,15 @@ _MONTH_MAP = {
     'JUL':'Jul','AUG':'Aug','SEP':'Sep','OCT':'Oct','NOV':'Nov','DEC':'Dec',
 }
 
-def _fmt_cont(tk):
-    """Format ticker label for display. CTJUL1 -> 'JUL 1', CTOCT2 -> 'OCT 2'"""
-    # Strip commodity prefix (2 chars) to get e.g. 'JUL1', 'OCT2', 'MAR1'
+def _fmt_cont(tk, fnd=''):
+    """Format ticker label for display. CTJUL1 -> 'Jul 1 \'26', CTOCT2 -> 'Oct 2 \'26'"""
     suffix = tk.replace(' Comdty','')
     suffix = suffix[2:]  # strip CT/KC/CC/SB
-    # Last char is the slot number
     slot = suffix[-1]
-    month_code = suffix[:-1]  # e.g. 'JUL', 'OCT', 'MAR'
+    month_code = suffix[:-1]
     month = _MONTH_MAP.get(month_code, month_code)
-    return f'{month} {slot}'
+    yr = f" '{fnd[2:4]}" if fnd and len(fnd) >= 4 else ''
+    return f'{month} {slot}{yr}'
 
 
 # Ticker order per commodity
@@ -61,7 +60,7 @@ def load_futures(comm='CT'):
         fnd = r.get('first_notice','')
         result.append({
             'ticker':   tk,
-            'cont':     _fmt_cont(tk),
+            'cont':     _fmt_cont(tk, fnd),
             'oi':       int(r['open_int'])   if r.get('open_int')   else 0,
             'oi_chg':   int(r['oi_chg'])     if r.get('oi_chg') and r['oi_chg'] not in ('','None') else 0,
             'settle':   float(r['settle'])   if r.get('settle')     else 0,

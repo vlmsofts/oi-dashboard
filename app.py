@@ -21,22 +21,24 @@ _MC_OLD = {'F':'JAN','G':'FEB','H':'MAR','J':'APR','K':'MAY','M':'JUN',
            'N':'JUL','Q':'AUG','U':'SEP','V':'OCT','X':'NOV','Z':'DEC'}
 _MONTHS_LIST = ['DEC','NOV','OCT','SEP','AUG','JUL','JUN','MAY','APR','MAR','FEB','JAN']
 
-def contract_label(code):
+def contract_label(code, first_notice=''):
     """
     Handles two formats:
-      Generic monthly: CTDEC1 -> 'DEC 1', CTJUL2 -> 'JUL 2'
+      Generic monthly: CTDEC1 -> 'DEC 1 \'26', CTJUL2 -> 'JUL 2 \'26'
       Specific contract: CTZ26 -> 'DEC 26', CTN16 -> 'JUL 16'
+    Year is derived from first_notice date when available.
     """
     if not code or len(code) < 3:
         return code or '—'
     code = code.strip().upper()
+    yr = f" '{first_notice[2:4]}" if first_notice and len(first_notice) >= 4 else ''
     # New format: 2-char commodity + 3-char month + slot digit (1 or 2)
     for comm in ('CT', 'SB', 'KC', 'CC'):
         if code.startswith(comm):
             rest = code[len(comm):]
             for mo in _MONTHS_LIST:
-                if rest == mo + '1': return f'{mo} 1'
-                if rest == mo + '2': return f'{mo} 2'
+                if rest == mo + '1': return f'{mo} 1{yr}'
+                if rest == mo + '2': return f'{mo} 2{yr}'
     # Old specific format: CTZ26, CTK6, SBN26 etc
     try:
         i = len(code) - 1
@@ -111,7 +113,7 @@ def load_data():
                 tickers[tk] = {
                     'label':        tk.replace(' Comdty',''),
                     'contract':     r['contract'],
-                    'contract_lbl': contract_label(r['contract']),
+                    'contract_lbl': contract_label(r['contract'], r.get('first_notice','')),
                     'settle':       None, 'open_int': None, 'oi_chg': None,
                     'first_notice': '', 'history': [],
                 }
@@ -122,7 +124,7 @@ def load_data():
             if r['date'] == last_date:
                 tickers[tk].update({
                     'contract':     r['contract'],
-                    'contract_lbl': contract_label(r['contract']),
+                    'contract_lbl': contract_label(r['contract'], r.get('first_notice','')),
                     'settle':       r['settle'],
                     'open_int':     r['open_int'],
                     'oi_chg':       r['oi_chg'],
@@ -142,6 +144,11 @@ def load_data():
 
         ordered = [tk for tk in TICKER_ORDER.get(comm, []) if tk in tickers]
         ordered += [tk for tk in tickers if tk not in ordered]
+        tk_order = {tk: i for i, tk in enumerate(TICKER_ORDER.get(comm, []))}
+        ordered.sort(key=lambda tk: (
+            tickers[tk].get('first_notice','') or '9999',
+            tk_order.get(tk, 99)
+        ))
 
         last_rows = [r for r in comm_rows if r['date'] == last_date]
         agg_oi    = sum(r['open_int'] for r in last_rows if r['open_int'])
