@@ -13,7 +13,7 @@ Run from Desktop: Open interest dashboard folder
 """
 
 import csv, json, pathlib, argparse
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 BASE_DIR    = pathlib.Path(__file__).parent
 DATA_DIR    = BASE_DIR / 'data'
@@ -78,10 +78,17 @@ def load_futures(comm='CT'):
     agg_chg = sum(r['oi_chg'] for r in result)
     return result, agg_oi, agg_chg, last_date
 
-def load_options_top10(comm='CT'):
-    """Load top 10 options by absolute OI change today for a given commodity."""
+def load_options_top10(comm='CT', target_date=None):
+    """Load top 10 options by absolute OI change for a given commodity.
+    target_date: use the futures release date so options and futures stay in sync.
+    Falls back to options max date if target_date not present in options CSV.
+    """
     rows = list(csv.DictReader(OPT_FILE.open(encoding='utf-8')))
-    last_date = max(r['date'] for r in rows)
+    available = sorted({r['date'] for r in rows})
+    if target_date and target_date in available:
+        last_date = target_date
+    else:
+        last_date = available[-1] if available else ''
     today = [r for r in rows if r['date'] == last_date and r.get('commodity', 'CT') == comm]
     # Parse and filter
     parsed = []
@@ -277,9 +284,13 @@ def render_png(html, png_path):
 
 def build_whatsapp_oi(output_base='output'):
     """Generate one PNG per commodity (CT, KC, CC, SB)."""
-    # Get date from futures data
+    # Get date from futures data — use trade date (prior business day), not release date
     all_rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
-    as_of = max(r['date'] for r in all_rows)
+    release_date = max(r['date'] for r in all_rows)
+    _d = datetime.strptime(release_date, '%Y-%m-%d').date() - timedelta(days=1)
+    while _d.weekday() >= 5:
+        _d -= timedelta(days=1)
+    as_of = _d.strftime('%Y-%m-%d')
 
     out_dir = pathlib.Path(output_base) / 'whatsapp' / as_of
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -290,7 +301,7 @@ def build_whatsapp_oi(output_base='output'):
         if not futures:
             print(f'  No futures data for {comm} — skipping')
             continue
-        opts, _ = load_options_top10(comm)
+        opts, _ = load_options_top10(comm, target_date=release_date)
         html = build_html(futures, agg_oi, agg_chg, opts, as_of, comm)
         png_path = out_dir / f'OI_Monitor_{comm}_{as_of}.png'
         result = render_png(html, png_path)
@@ -324,7 +335,7 @@ def main():
                 site_html = ''
                 for comm in ['CT', 'KC', 'CC', 'SB']:
                     futures, agg_oi, agg_chg, _ = load_futures(comm)
-                    opts, _ = load_options_top10(comm)
+                    opts, _ = load_options_top10(comm, target_date=as_of_date)
                     site_html += build_html(futures, agg_oi, agg_chg, opts, as_of_date, comm)
                 post_to_vlm(
                     title    = f'Open Interest Monitor — {as_of_date}',
