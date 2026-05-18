@@ -87,6 +87,9 @@ def load_options_top10(comm='CT', target_date=None):
     available = sorted({r['date'] for r in rows})
     if target_date and target_date in available:
         last_date = target_date
+    elif target_date and target_date not in available:
+        print(f'  WARNING: options CSV has no data for {target_date} (latest: {available[-1] if available else "none"}) — options section will be empty')
+        return [], target_date
     else:
         last_date = available[-1] if available else ''
     today = [r for r in rows if r['date'] == last_date and r.get('commodity', 'CT') == comm]
