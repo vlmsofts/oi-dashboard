@@ -240,12 +240,19 @@ body { color: var(--text); font-family: 'Aptos', 'Nunito', 'Segoe UI Semibold', 
 .vlm-theme-btn:hover { color: var(--text) !important; border-color:var(--text) !important; }
 
 /* Tabs — no background change, just gold underline */
-.vlm-secnav { background:var(--hdr) !important; border-bottom:1px solid var(--bord) !important; }
+.vlm-secnav { background:var(--hdr) !important; border-bottom:1px solid var(--bord) !important;
+              display:flex; align-items:center; }
 .vlm-sectab { color:var(--muted) !important; font-weight:700; letter-spacing:2px;
-              border-bottom:2px solid transparent !important; background:none !important; }
+              border:none !important; border-bottom:2px solid transparent !important;
+              background:none !important; outline:none !important; box-shadow:none !important; }
 .vlm-sectab:hover { color:var(--dim) !important; background:none !important; }
 .vlm-sectab.act   { color:var(--acc) !important; border-bottom-color:var(--acc) !important;
                     background:none !important; }
+.png-btn { font-size:10px; padding:3px 10px; border-radius:5px; cursor:pointer;
+           background:rgba(212,180,74,.12); border:1px solid rgba(212,180,74,.35);
+           color:#d4b44a; font-family:inherit; font-weight:600; letter-spacing:.04em;
+           white-space:nowrap; transition:background .12s,border-color .12s; }
+.png-btn:hover { background:rgba(212,180,74,.28); border-color:#d4b44a; }
 
 /* Buttons */
 .vlm-btn { color:var(--dim) !important; font-weight:600; letter-spacing:1px; }
@@ -398,6 +405,8 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
   <button class="vlm-sectab"     onclick="switchTab('seasonal',this)">Seasonal</button>
   <button class="vlm-sectab"     onclick="switchTab('table',this)">Table</button>
   <button class="vlm-sectab"     onclick="switchTab('options',this)">Options</button>
+  <div style="flex:1;"></div>
+  <button class="png-btn" onclick="exportCurrentTabPng()" style="margin-right:12px;">&#8659; PNG</button>
 </div>
 
 <!-- MONITOR -->
@@ -486,6 +495,7 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
 </div>
 
 </div><!-- /main-wrap -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <div class="vlm-footer">VLM COMMODITIES — OI MONITOR &nbsp;·&nbsp; BLOOMBERG EOD &nbsp;·&nbsp;
   UPDATES DAILY 09:35 EST &nbsp;·&nbsp; v%%VERSION%% &nbsp;·&nbsp;
   <a href="https://vlmdata.com" target="_blank" rel="noopener" style="color:var(--acc);text-decoration:none;">vlmdata.com</a></div>
@@ -825,10 +835,10 @@ function buildMonitor() {
           + '<div class="c vlm-muted">' + f0(cd.agg_oi) + '</div>'
           + '<div class="c vlm-muted">—</div>'
           + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color) + '</div>'
-          + '<div class="c vlm-muted">' + f0(td.tk_lo5||cd.lo5) + '</div>'
-          + '<div class="c" style="color:var(--red);">' + f0(td.tk_hi5||cd.hi5) + '</div>'
-          + '<div class="c vlm-muted">' + f0(td.tk_lo15||cd.lo15) + '</div>'
-          + '<div class="c vlm-muted">' + f0(td.tk_hi15||cd.hi15) + '</div>'
+          + '<div class="c vlm-muted">—</div>'
+          + '<div class="c vlm-muted">—</div>'
+          + '<div class="c vlm-muted">—</div>'
+          + '<div class="c vlm-muted">—</div>'
           + '<div class="c fn">' + (td.first_notice || '—') + '</div>'
           + '<div class="c"></div>';
 
@@ -1519,10 +1529,11 @@ function _renderOptContent(od) {
                  '<option value="">All Months</option>'+
                  od.months.map(function(m){return '<option>'+m+'</option>';}).join('')+
                  '</select>'+
-                 '<select id="optHStrike" style="'+SEL+'">'+
-                 '<option value="">All Strikes</option>'+
+                 '<div style="display:flex;flex-direction:column;gap:2px;align-items:flex-start;">'+
+                 '<span style="font-size:9px;color:#6b8090;letter-spacing:.5px;font-family:inherit;text-transform:uppercase;">Strike — ctrl+click multi</span>'+
+                 '<select id="optHStrike" multiple size="5" style="'+SEL+';cursor:pointer;min-width:90px;">'+
                  allStrikes.map(function(s){return '<option value="'+s+'">'+s.toFixed(2)+'</option>';}).join('')+
-                 '</select>'+
+                 '</select></div>'+
                  '<select id="optHPC" style="'+SEL+'">'+
                  '<option value="">C & P</option><option value="C">Calls</option><option value="P">Puts</option>'+
                  '</select>'+
@@ -1553,72 +1564,220 @@ function _renderOptContent(od) {
   content.innerHTML = out;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   PNG EXPORT — VLM OI MONITOR
+═══════════════════════════════════════════════════════════ */
+function _oiPngHdr(titleTxt) {
+  var rd = DATA.last_date;
+  return '<div style="background:#0d1117;padding:14px 24px 10px;border-bottom:1px solid #1e2d3d;display:flex;align-items:center;">'
+    + '<div><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:1px;line-height:1;font-family:Arial,sans-serif;">VLM COMMODITIES</div>'
+    + '<div style="font-size:13px;color:#4a9aba;letter-spacing:2px;text-transform:uppercase;margin-top:4px;font-family:Arial,sans-serif;">OPEN INTEREST MONITOR</div></div>'
+    + '</div>'
+    + '<div style="background:#111825;padding:7px 24px;border-bottom:3px solid #d4b44a;display:flex;gap:32px;align-items:center;">'
+    + '<span style="font-size:13px;color:#6b8090;font-family:Arial,sans-serif;">As of&nbsp;<strong style="color:#e0e8f0;">' + rd + ' 09:35 EST</strong></span>'
+    + '<span style="font-size:13px;color:#6b8090;font-family:Arial,sans-serif;">Source&nbsp;<strong style="color:#e0e8f0;">Bloomberg / ICE</strong></span>'
+    + '</div>'
+    + '<div style="background:#151e2a;padding:7px 24px;font-size:14px;font-weight:700;color:#d4b44a;letter-spacing:2px;text-transform:uppercase;font-family:Arial,sans-serif;border-left:4px solid #d4b44a;">' + titleTxt + '</div>';
+}
+function _oiPngFtr() {
+  return '<div style="background:#0d1117;padding:7px 24px;font-size:12px;color:#2a3a48;font-family:Arial,sans-serif;border-top:1px solid #1e2d3d;">VLM Commodities &nbsp;|&nbsp; Open Interest Monitor &nbsp;|&nbsp; vlmdata.com &nbsp;|&nbsp; ' + DATA.last_date + '</div>';
+}
+function _oiPngRender(innerHtml, filename, width) {
+  var w = width || 1300;
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:'+w+'px;background:#0d1117;font-family:Arial,sans-serif;';
+  wrap.innerHTML = innerHtml;
+  document.body.appendChild(wrap);
+  /* remove sticky so html2canvas captures full table */
+  wrap.querySelectorAll('[style*="sticky"],[style*="position:sticky"]').forEach(function(el){
+    el.style.position = 'relative';
+  });
+  var hd = wrap.querySelector('.grid-head');
+  if (hd) hd.style.position = 'relative';
+  html2canvas(wrap, {scale:2, useCORS:true, backgroundColor:'#0d1117', logging:false})
+    .then(function(canvas) {
+      document.body.removeChild(wrap);
+      var a = document.createElement('a');
+      a.download = filename;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    }).catch(function(e) {
+      document.body.removeChild(wrap);
+      alert('Export failed: ' + e.message);
+    });
+}
+
+function exportCurrentTabPng() {
+  var active = document.querySelector('.tab-content.act');
+  if (!active) return;
+  var id = active.id.replace('tab-','');
+  if      (id === 'monitor')  exportMonitorPng();
+  else if (id === 'seasonal') exportSeasPng();
+  else if (id === 'table')    exportTablePng();
+  else if (id === 'options')  exportOptionsPng();
+}
+
+function exportMonitorPng() {
+  var body = document.getElementById('monBody'); if (!body) return;
+  var clone = body.cloneNode(true);
+  /* hide expanded chart panels — they don't render well offscreen */
+  clone.querySelectorAll('.chart-panel').forEach(function(el){ el.remove(); });
+  var inner = _oiPngHdr('OPEN INTEREST MONITOR') + '<div style="background:#080b0f;">' + clone.outerHTML + '</div>' + _oiPngFtr();
+  _oiPngRender(inner, 'OI_Monitor_' + DATA.last_date + '.png', 1500);
+}
+
+function exportSeasPng() {
+  var contractSel = (document.getElementById('seasContract') || {}).value || 'Aggregate';
+  var modeLbl     = seasMode === 'band' ? 'HI/AVG/LO' : 'INDIVIDUAL YRS';
+  var titleTxt    = 'SEASONAL OI · ' + contractSel.toUpperCase() + ' · ' + modeLbl + ' · ' + seasYr + 'YR';
+  var curYear     = new Date(DATA.last_date).getFullYear();
+  var months      = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  /* current-year data table for PNG annotation */
+  function getCur(comm) {
+    var hist = getSeasHist(comm);
+    var cur  = Array(12).fill(null);
+    hist.filter(function(r){ return new Date(r.date).getFullYear()===curYear&&r.open_int; })
+        .forEach(function(r){ var m=new Date(r.date).getMonth(); if(cur[m]===null||r.open_int>cur[m])cur[m]=r.open_int; });
+    return cur;
+  }
+  var commsToShow = seasView==='single' ? [document.getElementById('seasSingleComm').value] : COMMS.filter(function(c){ return DATA.commodities[c]; });
+  var hdrRow = '<tr style="background:#0a1018;">'
+    + '<td style="padding:4px 10px;font-size:11px;color:#6b8090;font-family:Arial,sans-serif;border-right:1px solid #1e2d3d;font-weight:700;">' + curYear + '</td>'
+    + months.map(function(mo){ return '<td style="padding:4px 8px;font-size:11px;color:#6b8090;text-align:right;font-family:Arial,sans-serif;border-right:1px solid #1e2d3d;">' + mo + '</td>'; }).join('')
+    + '</tr>';
+  var dataRows = commsToShow.map(function(comm, ri) {
+    var cur = getCur(comm);
+    var bg  = ri%2===0 ? '#0d1520' : '#0a1018';
+    return '<tr style="background:'+bg+';">'
+      + '<td style="padding:4px 10px;font-size:12px;font-weight:700;color:'+CFG[comm].color+';font-family:Arial,sans-serif;border-right:1px solid #1e2d3d;">'+comm+'</td>'
+      + cur.map(function(v){ return '<td style="padding:4px 8px;font-size:12px;font-weight:700;text-align:right;font-family:Arial,sans-serif;border-right:1px solid #1e2d3d;color:'+(v!=null?'#e0e8f0':'#2a3a48')+'">'+(v!=null?(v/1000).toFixed(0)+'k':'—')+'</td>'; }).join('')
+      + '</tr>';
+  }).join('');
+  var curTableHtml = '<div style="background:#0d1117;border-top:2px solid #d4b44a;padding:10px 24px 14px;">'
+    + '<div style="font-size:11px;font-weight:700;color:#d4b44a;letter-spacing:1px;margin-bottom:6px;font-family:Arial,sans-serif;">' + curYear + ' CURRENT PERIOD DATA</div>'
+    + '<table style="border-collapse:collapse;width:100%;border:1px solid #1e2d3d;">'
+    + '<tbody>' + hdrRow + dataRows + '</tbody></table></div>';
+
+  if (seasView === 'single') {
+    var cv = document.getElementById('scSingle'); if (!cv) { alert('Chart not ready'); return; }
+    var legEl = document.getElementById('seasSingleLeg');
+    var legHtml = legEl ? legEl.outerHTML : '';
+    var hdrEl = document.getElementById('seasSingleHdr');
+    var hdrHtml = hdrEl ? hdrEl.outerHTML : '';
+    var inner = _oiPngHdr(titleTxt)
+      + '<div style="background:#0d1117;padding:10px 24px 6px;">' + hdrHtml + legHtml
+      + '<div style="width:100%;"><img src="' + cv.toDataURL() + '" style="width:100%;height:400px;object-fit:fill;"></div></div>'
+      + curTableHtml + _oiPngFtr();
+    _oiPngRender(inner, 'OI_Seasonal_Single_' + DATA.last_date + '.png', 1060);
+  } else {
+    var gridImgs = COMMS.filter(function(c){ return DATA.commodities[c]; }).map(function(comm) {
+      var cv2 = document.getElementById('sc-'+comm); return cv2 ? cv2.toDataURL() : null;
+    });
+    var gridHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 24px;background:#0d1117;">';
+    COMMS.filter(function(c){ return DATA.commodities[c]; }).forEach(function(comm, i) {
+      var img = gridImgs[i]; if (!img) return;
+      gridHtml += '<div style="background:#0f1520;border:1px solid #1e2d3d;border-radius:3px;padding:10px;">'
+        + '<div style="font-size:13px;font-weight:700;color:'+CFG[comm].color+';font-family:Arial,sans-serif;margin-bottom:4px;">'+comm+' '+CFG[comm].name+'</div>'
+        + '<img src="'+img+'" style="width:100%;height:200px;object-fit:fill;">'
+        + '</div>';
+    });
+    gridHtml += '</div>';
+    var inner2 = _oiPngHdr(titleTxt) + gridHtml + curTableHtml + _oiPngFtr();
+    _oiPngRender(inner2, 'OI_Seasonal_' + DATA.last_date + '.png', 1060);
+  }
+}
+
+function exportTablePng() {
+  var tbl = document.getElementById('histTbl'); if (!tbl) return;
+  var comm     = document.getElementById('tblComm').value;
+  var contract = (document.getElementById('tblContract').value || 'Aggregate');
+  var freq     = tblFreq.charAt(0).toUpperCase() + tblFreq.slice(1);
+  var titleTxt = comm + ' OI · ' + contract + ' · ' + freq;
+  var inner = _oiPngHdr(titleTxt) + '<div style="background:#080b0f;overflow:hidden;">' + tbl.outerHTML + '</div>' + _oiPngFtr();
+  _oiPngRender(inner, 'OI_Table_'+comm+'_'+DATA.last_date+'.png', 1060);
+}
+
+function exportOptionsPng() {
+  var content = document.getElementById('optContent'); if (!content) return;
+  var comm = _optComm;
+  var titleTxt = (OPT_COMM_CFG[comm]?OPT_COMM_CFG[comm].label:comm) + ' OPTIONS OI';
+  /* clone content, hide the history search form (just show current OI table) */
+  var clone = content.cloneNode(true);
+  var hsearch = clone.querySelector('#optHResult');
+  /* keep result if populated, hide the search form controls */
+  clone.querySelectorAll('#optHMonth,#optHStrike,#optHPC,#optHFrom,#optHTo,#optHStatus').forEach(function(el){ el.style.visibility='hidden'; });
+  var inner = _oiPngHdr(titleTxt) + '<div style="background:#080b0f;padding:0 0 4px;">' + clone.outerHTML + '</div>' + _oiPngFtr();
+  _oiPngRender(inner, 'OI_Options_'+comm+'_'+DATA.last_date+'.png', 1060);
+}
+
 function clearOptHistory() {
   document.getElementById('optHResult').innerHTML = '';
   document.getElementById('optHStatus').textContent = '';
 }
 
+function _renderOptHistRows(allRows, status, result) {
+  if (!allRows || !allRows.length) { status.textContent = 'No data found'; return; }
+  status.textContent = allRows.length + ' rows';
+  var GREEN='#22c55e', RED='#ef4444', DIM='#64748b', WHITE='#f1f5f9', DARK='#0d1520', ALT='#0a1018', GOLD='#E8C547';
+  function cChg(v){ return v>0?GREEN:v<0?RED:DIM; }
+  var html = '<div style="margin-bottom:12px;">';
+  var groups = {};
+  allRows.forEach(function(r){ if(!groups[r.sec])groups[r.sec]=[]; groups[r.sec].push(r); });
+  Object.keys(groups).sort().forEach(function(sec) {
+    var rows = groups[sec];
+    /* separator bar between strike groups */
+    html += '<div style="margin-bottom:16px;">'
+          + '<div style="background:#0f1e35;padding:5px 14px 5px 10px;font-size:12px;font-weight:700;border-left:3px solid '+(rows[0].pc==='C'?GREEN:RED)+';color:'+(rows[0].pc==='C'?GREEN:RED)+';">'+sec+'</div>'
+          + '<div style="display:grid;grid-template-columns:100px 1fr 1fr 1fr 1fr;background:#080f1a;">'
+          + ['DATE','OPEN INT','OI CHG','SETTLE','VOLUME'].map(function(h){
+              return '<div style="font-size:10px;font-weight:700;color:'+DIM+';text-align:right;padding:3px 8px;letter-spacing:.5px;">'+h+'</div>';
+            }).join('')+'</div>';
+    rows.forEach(function(r, idx) {
+      html += '<div style="display:grid;grid-template-columns:100px 1fr 1fr 1fr 1fr;background:'+(idx%2===0?DARK:ALT)+';}">'
+            + '<div style="font-size:13px;color:'+DIM+';padding:3px 8px;text-align:right;">'+r.date+'</div>'
+            + '<div style="font-size:13px;font-weight:700;color:'+(r.oi>=5000?GOLD:r.oi>=1000?GREEN:WHITE)+';text-align:right;padding:3px 8px;">'+Number(r.oi).toLocaleString()+'</div>'
+            + '<div style="font-size:13px;color:'+cChg(r.chg)+';text-align:right;padding:3px 8px;">'+(r.chg!==null&&r.chg!==''?(r.chg>=0?'+':'')+Number(r.chg).toLocaleString():'—')+'</div>'
+            + '<div style="font-size:13px;color:'+WHITE+';text-align:right;padding:3px 8px;">'+(r.settle?Number(r.settle).toFixed(2):'—')+'</div>'
+            + '<div style="font-size:13px;color:'+DIM+';text-align:right;padding:3px 8px;">'+(r.vol?Number(r.vol).toLocaleString():'—')+'</div>'
+            + '</div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  result.innerHTML = html;
+}
+
 function runOptHistory() {
   var month  = document.getElementById('optHMonth').value;
-  var strike = document.getElementById('optHStrike').value;
   var pc     = document.getElementById('optHPC').value;
   var from   = document.getElementById('optHFrom').value;
   var to     = document.getElementById('optHTo').value;
   var status = document.getElementById('optHStatus');
   var result = document.getElementById('optHResult');
+
+  /* multi-strike: read all selected options */
+  var strikeEl = document.getElementById('optHStrike');
+  var strikes  = Array.from(strikeEl.selectedOptions).map(function(o){ return o.value; });
+  if (!strikes.length) strikes = [''];   /* no selection = all strikes */
+
   status.textContent = 'Loading...';
   result.innerHTML = '';
 
-  fetch('/api/options/history?month='+encodeURIComponent(month)+
-        '&strike='+encodeURIComponent(strike)+'&pc='+encodeURIComponent(pc)+
-        '&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+
-        '&commodity='+encodeURIComponent(_optComm))
-    .then(function(r){ return r.json(); })
-    .then(function(data) {
-      if (!data || !data.rows || !data.rows.length) {
-        status.textContent = 'No data found';
-        return;
-      }
-      status.textContent = data.rows.length + ' days';
-      var GREEN='#22c55e', RED='#ef4444', DIM='#64748b', WHITE='#f1f5f9', DARK='#0d1520', ALT='#0a1018';
-      var GOLD='#E8C547';
-      function cChg(v){ return v>0?GREEN:v<0?RED:DIM; }
-
-      var html = '<div style="margin-bottom:12px;">';
-      // Group by security_des
-      var groups = {};
-      data.rows.forEach(function(r) {
-        if (!groups[r.sec]) groups[r.sec] = [];
-        groups[r.sec].push(r);
-      });
-      Object.keys(groups).sort().forEach(function(sec) {
-        var rows = groups[sec];
-        html += '<div style="margin-bottom:12px;">'+
-                '<div style="background:#0f1e35;padding:5px 14px;font-size:12px;font-weight:700;color:'+
-                (rows[0].pc==='C'?GREEN:RED)+';">'+sec+'</div>';
-        html += '<div style="display:grid;grid-template-columns:100px 1fr 1fr 1fr 1fr;background:#080f1a;">'+
-                ['DATE','OPEN INT','OI CHG','SETTLE','VOLUME'].map(function(h){
-                  return '<div style="font-size:10px;font-weight:700;color:'+DIM+';text-align:right;'+
-                         'padding:3px 8px;letter-spacing:.5px;">'+h+'</div>';
-                }).join('')+'</div>';
-        rows.forEach(function(r, idx) {
-          html += '<div style="display:grid;grid-template-columns:100px 1fr 1fr 1fr 1fr;'+
-                  'background:'+(idx%2===0?DARK:ALT)+';">'+
-                  '<div style="font-size:13px;color:'+DIM+';padding:3px 8px;text-align:right;">'+r.date+'</div>'+
-                  '<div style="font-size:13px;font-weight:700;color:'+(r.oi>=5000?GOLD:r.oi>=1000?GREEN:WHITE)+
-                  ';text-align:right;padding:3px 8px;">'+Number(r.oi).toLocaleString()+'</div>'+
-                  '<div style="font-size:13px;color:'+cChg(r.chg)+';text-align:right;padding:3px 8px;">'+
-                  (r.chg!==null&&r.chg!==''?(r.chg>=0?'+':'')+Number(r.chg).toLocaleString():'—')+'</div>'+
-                  '<div style="font-size:13px;color:'+WHITE+';text-align:right;padding:3px 8px;">'+
-                  (r.settle?Number(r.settle).toFixed(2):'—')+'</div>'+
-                  '<div style="font-size:13px;color:'+DIM+';text-align:right;padding:3px 8px;">'+
-                  (r.vol?Number(r.vol).toLocaleString():'—')+'</div>'+
-                  '</div>';
-        });
-        html += '</div>';
-      });
-      html += '</div>';
-      result.innerHTML = html;
+  var promises = strikes.map(function(strike) {
+    return fetch('/api/options/history?month='+encodeURIComponent(month)
+      +'&strike='+encodeURIComponent(strike)+'&pc='+encodeURIComponent(pc)
+      +'&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)
+      +'&commodity='+encodeURIComponent(_optComm))
+      .then(function(r){ return r.json(); });
+  });
+  Promise.all(promises)
+    .then(function(results) {
+      var allRows = [];
+      results.forEach(function(d){ if(d&&d.rows) allRows = allRows.concat(d.rows); });
+      /* stable sort: by sec then date desc */
+      allRows.sort(function(a,b){ return a.sec<b.sec?-1:a.sec>b.sec?1:b.date<a.date?-1:1; });
+      _renderOptHistRows(allRows, status, result);
     })
     .catch(function(e){ status.textContent = 'Error: '+e.message; });
 }
