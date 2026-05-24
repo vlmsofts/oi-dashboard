@@ -836,9 +836,9 @@ function buildMonitor() {
           + '<div class="c vlm-muted">—</div>'
           + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color) + '</div>'
           + '<div class="c vlm-muted">—</div>'
+          + '<div class="c" style="color:var(--red);">' + f0(td.tk_hi5||cd.hi5) + '</div>'
           + '<div class="c vlm-muted">—</div>'
-          + '<div class="c vlm-muted">—</div>'
-          + '<div class="c vlm-muted">—</div>'
+          + '<div class="c vlm-muted">' + f0(td.tk_hi15||cd.hi15) + '</div>'
           + '<div class="c fn">' + (td.first_notice || '—') + '</div>'
           + '<div class="c"></div>';
 
