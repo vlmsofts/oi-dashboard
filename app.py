@@ -1659,32 +1659,92 @@ function exportSeasPng() {
     + '<table style="border-collapse:collapse;width:100%;border:1px solid #c8d4e0;">'
     + '<tbody>' + hdrRow + dataRows + '</tbody></table></div>';
 
+  /* Re-render a Chart.js chart on an offscreen canvas with white background + light grid */
+  function lightChartImg(ds, labels, w, h) {
+    return new Promise(function(resolve) {
+      var cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.style.cssText = 'position:fixed;left:-9999px;top:0;';
+      document.body.appendChild(cv);
+      var whiteBg = { id:'whitebg', beforeDraw:function(ch){
+        ch.ctx.save(); ch.ctx.fillStyle='#ffffff';
+        ch.ctx.fillRect(0,0,ch.canvas.width,ch.canvas.height); ch.ctx.restore();
+      }};
+      var chart = new Chart(cv, {
+        type:'line', data:{labels:labels, datasets:ds},
+        options:{
+          responsive:false, maintainAspectRatio:false, animation:{duration:0},
+          plugins:{ legend:{display:false}, tooltip:{enabled:false} },
+          scales:{
+            x:{ grid:{color:'#d0dce8'}, ticks:{color:'#2d3748', font:{size:9}} },
+            y:{ grid:{color:'#d0dce8'}, ticks:{color:'#2d3748', font:{size:9}, callback:tk} }
+          }
+        },
+        plugins:[whiteBg]
+      });
+      setTimeout(function(){
+        resolve(cv.toDataURL('image/png'));
+        chart.destroy();
+        document.body.removeChild(cv);
+      }, 150);
+    });
+  }
+
+  /* Compact text legend with hardcoded light colors */
+  function buildLegLight(card) {
+    var items = [];
+    if (seasMode === 'band') {
+      items.push({swatch:'box', color:card.cfg.color+'88', bg:card.cfg.ca, label:seasYr+'yr Range'});
+      items.push({swatch:'line', color:'#2d3748', bg:null, label:seasYr+'yr Avg'});
+      items.push({swatch:'line', color:card.cfg.color, bg:null, label:String(curYear)});
+    } else {
+      card.ds.forEach(function(d){
+        items.push({swatch:'line', color:d.borderColor, bg:null, label:d.label});
+      });
+    }
+    return items.map(function(it) {
+      var sw = it.swatch==='box'
+        ? '<span style="display:inline-block;width:16px;height:8px;background:'+it.bg+';border:1px solid '+it.color+';border-radius:2px;vertical-align:middle;margin-right:4px;"></span>'
+        : '<span style="display:inline-block;width:16px;height:2px;background:'+it.color+';vertical-align:middle;margin-right:4px;"></span>';
+      return '<span style="font-size:11px;color:#2d3748;font-weight:600;font-family:Arial,sans-serif;margin-right:12px;white-space:nowrap;">'+sw+it.label+'</span>';
+    }).join('');
+  }
+
   if (seasView === 'single') {
-    var cv = document.getElementById('scSingle'); if (!cv) { alert('Chart not ready'); return; }
-    var legEl = document.getElementById('seasSingleLeg');
-    var legHtml = legEl ? legEl.outerHTML : '';
+    var sComm = document.getElementById('seasSingleComm').value;
+    var card  = buildSeasCard(sComm);
     var hdrEl = document.getElementById('seasSingleHdr');
-    var hdrHtml = hdrEl ? hdrEl.outerHTML : '';
-    var inner = _oiPngHdr(titleTxt)
-      + '<div style="background:#0d1117;padding:10px 24px 6px;">' + hdrHtml + legHtml
-      + '<div style="width:100%;"><img src="' + cv.toDataURL() + '" style="width:100%;height:400px;object-fit:fill;"></div></div>'
-      + curTableHtml + _oiPngFtr();
-    _oiPngRender(inner, 'OI_Seasonal_Single_' + DATA.last_date + '.png', 1060);
+    var hdrTxt = hdrEl ? hdrEl.textContent : sComm + ' ' + CFG[sComm].name;
+    lightChartImg(card.ds, card.labels, 1012, 420).then(function(img) {
+      var inner = _oiPngHdr(titleTxt)
+        + '<div style="background:#ffffff;padding:10px 24px 8px;">'
+        + '<div style="font-size:13px;font-weight:700;color:'+card.cfg.color+';font-family:Arial,sans-serif;margin-bottom:4px;">'+hdrTxt+'</div>'
+        + '<div style="margin-bottom:6px;">'+buildLegLight(card)+'</div>'
+        + '<img src="'+img+'" style="width:100%;height:420px;object-fit:fill;display:block;border:1px solid #e0e8f0;">'
+        + '</div>'
+        + curTableHtml + _oiPngFtr();
+      _oiPngRender(inner, 'OI_Seasonal_Single_' + DATA.last_date + '.png', 1060);
+    });
   } else {
-    var gridImgs = COMMS.filter(function(c){ return DATA.commodities[c]; }).map(function(comm) {
-      var cv2 = document.getElementById('sc-'+comm); return cv2 ? cv2.toDataURL() : null;
+    var tasks = COMMS.filter(function(c){ return DATA.commodities[c]; }).map(function(comm) {
+      var card = buildSeasCard(comm);
+      return lightChartImg(card.ds, card.labels, 490, 220).then(function(img) {
+        return { comm:comm, img:img, cfg:CFG[comm], card:card };
+      });
     });
-    var gridHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 24px;background:#0d1117;">';
-    COMMS.filter(function(c){ return DATA.commodities[c]; }).forEach(function(comm, i) {
-      var img = gridImgs[i]; if (!img) return;
-      gridHtml += '<div style="background:#0f1520;border:1px solid #1e2d3d;border-radius:3px;padding:10px;">'
-        + '<div style="font-size:13px;font-weight:700;color:'+CFG[comm].color+';font-family:Arial,sans-serif;margin-bottom:4px;">'+comm+' '+CFG[comm].name+'</div>'
-        + '<img src="'+img+'" style="width:100%;height:200px;object-fit:fill;">'
-        + '</div>';
+    Promise.all(tasks).then(function(results) {
+      var gridHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 24px;background:#f0f2f5;">';
+      results.forEach(function(r) {
+        gridHtml += '<div style="background:#ffffff;border:1px solid #c8d4e0;border-radius:3px;padding:10px;">'
+          + '<div style="font-size:13px;font-weight:700;color:'+r.cfg.color+';font-family:Arial,sans-serif;margin-bottom:2px;">'+r.comm+' '+r.cfg.name+'</div>'
+          + '<div style="margin-bottom:4px;">'+buildLegLight(r.card)+'</div>'
+          + '<img src="'+r.img+'" style="width:100%;height:200px;object-fit:fill;display:block;border:1px solid #e0e8f0;">'
+          + '</div>';
+      });
+      gridHtml += '</div>';
+      var inner = _oiPngHdr(titleTxt) + gridHtml + curTableHtml + _oiPngFtr();
+      _oiPngRender(inner, 'OI_Seasonal_' + DATA.last_date + '.png', 1060);
     });
-    gridHtml += '</div>';
-    var inner2 = _oiPngHdr(titleTxt) + gridHtml + curTableHtml + _oiPngFtr();
-    _oiPngRender(inner2, 'OI_Seasonal_' + DATA.last_date + '.png', 1060);
   }
 }
 
