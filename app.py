@@ -243,6 +243,7 @@ body { color: var(--text); font-family: 'Aptos', 'Nunito', 'Segoe UI Semibold', 
 .vlm-secnav { background:var(--hdr) !important; border-bottom:1px solid var(--bord) !important;
               display:flex; align-items:center; }
 .vlm-sectab { color:var(--muted) !important; font-weight:700; letter-spacing:2px;
+              padding:10px 18px !important;
               border:none !important; border-bottom:2px solid transparent !important;
               background:none !important; outline:none !important; box-shadow:none !important; }
 .vlm-sectab:hover { color:var(--dim) !important; background:none !important; }
@@ -282,7 +283,7 @@ body.light select.oi-sel option { background:#fff; color:#1a202c; }
 
 /* Monitor grid — 12 columns (Lo merged into Hi cell) */
 .G { display:grid;
-     grid-template-columns:140px 90px 100px 84px 90px 110px 84px minmax(110px,1fr) 110px 110px 100px 120px;
+     grid-template-columns:140px 90px 100px 84px 90px 110px 110px minmax(110px,1fr) 110px 110px 100px 120px;
      gap:0; }
 .oi-badge { display:inline-flex;align-items:center;gap:4px;border-radius:3px;padding:3px 8px;font-size:10px;font-weight:700;letter-spacing:.6px;white-space:nowrap;border-width:1px;border-style:solid; }
 .grid-head { background:var(--hdr); border-bottom:1px solid var(--acc);
