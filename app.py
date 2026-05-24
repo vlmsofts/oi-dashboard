@@ -280,9 +280,9 @@ body.light select.oi-sel option { background:#fff; color:#1a202c; }
 .tab-content { display:none; }
 .tab-content.act { display:block; }
 
-/* Monitor grid — 14 columns */
+/* Monitor grid — 12 columns (Lo merged into Hi cell) */
 .G { display:grid;
-     grid-template-columns:140px 90px 100px 84px 90px 110px 84px minmax(110px,1fr) 84px 94px 84px 94px 100px 120px;
+     grid-template-columns:140px 90px 100px 84px 90px 110px 84px minmax(110px,1fr) 110px 110px 100px 120px;
      gap:0; }
 .oi-badge { display:inline-flex;align-items:center;gap:4px;border-radius:3px;padding:3px 8px;font-size:10px;font-weight:700;letter-spacing:.6px;white-space:nowrap;border-width:1px;border-style:solid; }
 .grid-head { background:var(--hdr); border-bottom:1px solid var(--acc);
@@ -732,10 +732,8 @@ function buildMonitor() {
     + '<div class="gh">Aggte O.I.</div>'
     + '<div class="gh">Aggte OI Chg</div>'
     + '<div class="gh" style="text-align:left;padding-left:4px;">Aggte OI (1yr)</div>'
-    + '<div class="gh">5yr Lo OI</div>'
-    + '<div class="gh">5yr Hi OI</div>'
-    + '<div class="gh">15yr Lo OI</div>'
-    + '<div class="gh">15yr Hi OI</div>'
+    + '<div class="gh">5yr Hi / Lo</div>'
+    + '<div class="gh">15yr Hi / Lo</div>'
     + '<div class="gh">1st Notice</div>'
     + '<div class="gh" title="5yr percentile + OI trend direction">5yr %ile</div>';
   body.appendChild(hdr);
@@ -802,10 +800,8 @@ function buildMonitor() {
       + '<div class="c" style="color:' + cfg.color + ';font-weight:700;">' + f0(cd.agg_oi) + '</div>'
       + '<div class="c ' + ((cd.agg_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(cd.agg_chg) + '</div>'
       + '<div class="cl" style="padding:2px 5px;">' + makeSpark(cd.sparkline, cd.agg_oi, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color) + '</div>'
-      + '<div class="c vlm-muted">' + f0(cd.lo5) + '</div>'
-      + '<div class="c" style="color:var(--red);">' + f0(cd.hi5) + '</div>'
-      + '<div class="c vlm-muted">' + f0(cd.lo15) + '</div>'
-      + '<div class="c vlm-muted">' + f0(cd.hi15) + '</div>'
+      + '<div class="c" style="line-height:1.3;"><span style="color:var(--red);font-size:15px;font-weight:700;">' + f0(cd.hi5) + '</span><br><span style="color:var(--muted);font-size:10px;font-weight:600;">lo ' + f0(cd.lo5) + '</span></div>'
+      + '<div class="c" style="line-height:1.3;"><span style="color:var(--muted);font-size:15px;font-weight:700;">' + f0(cd.hi15) + '</span><br><span style="color:var(--muted);font-size:10px;font-weight:600;">lo ' + f0(cd.lo15) + '</span></div>'
       + '<div class="c fn">' + (front.first_notice || '—') + '</div>'
       + makeSignalBadge(cd);
     ar.addEventListener('click', function() {
@@ -835,9 +831,7 @@ function buildMonitor() {
           + '<div class="c vlm-muted">' + f0(cd.agg_oi) + '</div>'
           + '<div class="c vlm-muted">—</div>'
           + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color) + '</div>'
-          + '<div class="c vlm-muted">—</div>'
           + '<div class="c" style="color:var(--red);">' + f0(td.tk_hi5||cd.hi5) + '</div>'
-          + '<div class="c vlm-muted">—</div>'
           + '<div class="c vlm-muted">' + f0(td.tk_hi15||cd.hi15) + '</div>'
           + '<div class="c fn">' + (td.first_notice || '—') + '</div>'
           + '<div class="c"></div>';
@@ -1585,7 +1579,13 @@ function _oiPngFtr() {
 function _oiPngRender(innerHtml, filename, width) {
   var w = width || 1300;
   var wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:'+w+'px;background:#0d1117;font-family:Arial,sans-serif;';
+  wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:'+w+'px;background:#f0f2f5;font-family:Arial,sans-serif;';
+  /* Inject light-mode CSS tokens so all var(--x) references resolve to light palette */
+  var lightToks = {'--bg':'#f0f2f5','--surf':'#ffffff','--surf2':'#f4f6f8','--hdr':'#e8edf2',
+                   '--bord':'#c8d4e0','--bord2':'#b0bfd0','--text':'#1a202c','--dim':'#2d3748',
+                   '--muted':'#4a5568','--grn':'#15803d','--red':'#b91c1c',
+                   '--acc':'#92680a','--gold':'#92680a','--blue':'#1e40af'};
+  Object.keys(lightToks).forEach(function(k){ wrap.style.setProperty(k, lightToks[k]); });
   wrap.innerHTML = innerHtml;
   document.body.appendChild(wrap);
   /* remove sticky so html2canvas captures full table */
@@ -1642,21 +1642,21 @@ function exportSeasPng() {
     return cur;
   }
   var commsToShow = seasView==='single' ? [document.getElementById('seasSingleComm').value] : COMMS.filter(function(c){ return DATA.commodities[c]; });
-  var hdrRow = '<tr style="background:#0a1018;">'
-    + '<td style="padding:4px 10px;font-size:11px;color:#6b8090;font-family:Arial,sans-serif;border-right:1px solid #1e2d3d;font-weight:700;">' + curYear + '</td>'
-    + months.map(function(mo){ return '<td style="padding:4px 8px;font-size:11px;color:#6b8090;text-align:right;font-family:Arial,sans-serif;border-right:1px solid #1e2d3d;">' + mo + '</td>'; }).join('')
+  var hdrRow = '<tr style="background:#e8edf2;">'
+    + '<td style="padding:4px 10px;font-size:11px;color:#4a5568;font-family:Arial,sans-serif;border-right:1px solid #c8d4e0;font-weight:700;">' + curYear + '</td>'
+    + months.map(function(mo){ return '<td style="padding:4px 8px;font-size:11px;color:#4a5568;text-align:right;font-family:Arial,sans-serif;border-right:1px solid #c8d4e0;">' + mo + '</td>'; }).join('')
     + '</tr>';
   var dataRows = commsToShow.map(function(comm, ri) {
     var cur = getCur(comm);
-    var bg  = ri%2===0 ? '#0d1520' : '#0a1018';
+    var bg  = ri%2===0 ? '#ffffff' : '#f4f7fa';
     return '<tr style="background:'+bg+';">'
-      + '<td style="padding:4px 10px;font-size:12px;font-weight:700;color:'+CFG[comm].color+';font-family:Arial,sans-serif;border-right:1px solid #1e2d3d;">'+comm+'</td>'
-      + cur.map(function(v){ return '<td style="padding:4px 8px;font-size:12px;font-weight:700;text-align:right;font-family:Arial,sans-serif;border-right:1px solid #1e2d3d;color:'+(v!=null?'#e0e8f0':'#2a3a48')+'">'+(v!=null?(v/1000).toFixed(0)+'k':'—')+'</td>'; }).join('')
+      + '<td style="padding:4px 10px;font-size:12px;font-weight:700;color:'+CFG[comm].color+';font-family:Arial,sans-serif;border-right:1px solid #c8d4e0;">'+comm+'</td>'
+      + cur.map(function(v){ return '<td style="padding:4px 8px;font-size:12px;font-weight:700;text-align:right;font-family:Arial,sans-serif;border-right:1px solid #c8d4e0;color:'+(v!=null?'#1a202c':'#94a3b8')+'">'+(v!=null?(v/1000).toFixed(0)+'k':'—')+'</td>'; }).join('')
       + '</tr>';
   }).join('');
-  var curTableHtml = '<div style="background:#0d1117;border-top:2px solid #d4b44a;padding:10px 24px 14px;">'
-    + '<div style="font-size:11px;font-weight:700;color:#d4b44a;letter-spacing:1px;margin-bottom:6px;font-family:Arial,sans-serif;">' + curYear + ' CURRENT PERIOD DATA</div>'
-    + '<table style="border-collapse:collapse;width:100%;border:1px solid #1e2d3d;">'
+  var curTableHtml = '<div style="background:#e8edf2;border-top:2px solid #d4b44a;padding:10px 24px 14px;">'
+    + '<div style="font-size:11px;font-weight:700;color:#92680a;letter-spacing:1px;margin-bottom:6px;font-family:Arial,sans-serif;">' + curYear + ' CURRENT PERIOD DATA</div>'
+    + '<table style="border-collapse:collapse;width:100%;border:1px solid #c8d4e0;">'
     + '<tbody>' + hdrRow + dataRows + '</tbody></table></div>';
 
   if (seasView === 'single') {
@@ -1699,15 +1699,56 @@ function exportTablePng() {
 }
 
 function exportOptionsPng() {
-  var content = document.getElementById('optContent'); if (!content) return;
+  var od   = _optData[_optComm]; if (!od || !od.months) { alert('Load options data first'); return; }
   var comm = _optComm;
   var titleTxt = (OPT_COMM_CFG[comm]?OPT_COMM_CFG[comm].label:comm) + ' OPTIONS OI';
-  /* clone content, hide the history search form (just show current OI table) */
-  var clone = content.cloneNode(true);
-  var hsearch = clone.querySelector('#optHResult');
-  /* keep result if populated, hide the search form controls */
-  clone.querySelectorAll('#optHMonth,#optHStrike,#optHPC,#optHFrom,#optHTo,#optHStatus').forEach(function(el){ el.style.visibility='hidden'; });
-  var inner = _oiPngHdr(titleTxt) + '<div style="background:#080b0f;padding:0 0 4px;">' + clone.outerHTML + '</div>' + _oiPngFtr();
+  /* Rebuild options content with light-mode hardcoded colors for PNG */
+  var GREEN='#15803d', RED='#b91c1c', DIM='#4a5568', BLACK='#1a202c';
+  var ROW1='#ffffff',  ROW2='#f4f7fa', MON_BG='#e8edf2', HDR_BG='#c8d4e0', GOLD='#92680a';
+  var GRID = '1fr 1fr 1fr 1fr 1fr';
+  function fmtN(v){if(v===null||v===undefined||v==='')return '—';return Number(v).toLocaleString();}
+  function fmtS(v){if(v===null||v===undefined||v==='')return '—';return Number(v).toFixed(2);}
+  function fmtC(v){if(v===null||v===undefined||v==='')return '—';return(Number(v)>=0?'+':'')+Number(v).toLocaleString();}
+  function cOI(oi){return oi>=5000?GOLD:oi>=1000?GREEN:BLACK;}
+  function cChg(v){if(v===null||v===undefined||v==='')return DIM;return v>0?GREEN:v<0?RED:DIM;}
+  function colHdr(lbl){return '<div style="font-size:11px;font-weight:700;color:'+DIM+';text-align:right;letter-spacing:.6px;padding:4px 8px;border-bottom:1px solid #c8d4e0;background:'+HDR_BG+';">'+lbl+'</div>';}
+  function cell(c,color,size){return '<div style="font-size:'+(size||14)+'px;font-weight:700;color:'+(color||BLACK)+';text-align:right;padding:4px 8px;">'+c+'</div>';}
+  function buildSec(label,color,pcKey,bg) {
+    var html='<div style="padding:6px 14px;background:'+bg+';border-left:4px solid '+color+';margin-bottom:4px;">'
+      +'<span style="font-size:13px;font-weight:700;letter-spacing:2px;color:'+color+';">◆ '+label+'</span></div>';
+    od.months.forEach(function(month) {
+      var rows=(od[pcKey]&&od[pcKey][month])?od[pcKey][month]:[];
+      if(!rows.length)return;
+      var totOI=rows.reduce(function(s,r){return s+r.oi;},0);
+      var totVol=rows.reduce(function(s,r){return s+(r.vol||0);},0);
+      var totChg=rows.reduce(function(s,r){return s+(r.chg||0);},0);
+      html+='<div style="background:'+MON_BG+';padding:5px 14px;margin-top:4px;display:flex;align-items:center;justify-content:space-between;">'
+        +'<span style="font-size:13px;font-weight:700;color:'+color+';">'+month+'</span>'
+        +'<span style="font-size:11px;color:'+DIM+';">OI: <span style="color:'+BLACK+';">'+totOI.toLocaleString()+'</span>'
+        +'&nbsp;&nbsp;Vol: <span style="color:'+BLACK+';">'+totVol.toLocaleString()+'</span>'
+        +'&nbsp;&nbsp;OI Chg: <span style="color:'+cChg(totChg)+';">'+fmtC(totChg)+'</span></span></div>';
+      html+='<div style="display:grid;grid-template-columns:'+GRID+';background:'+HDR_BG+';">'
+        +colHdr('STRIKE')+colHdr('OPEN INT')+colHdr('OI CHG')+colHdr('SETTLE')+colHdr('VOLUME')+'</div>';
+      rows.forEach(function(r,idx){
+        var bg=idx%2===0?ROW1:ROW2;
+        html+='<div style="display:grid;grid-template-columns:'+GRID+';background:'+bg+';">'
+          +cell(r.strike.toFixed(2),DIM)+cell(fmtN(r.oi),cOI(r.oi))+cell(fmtC(r.chg),cChg(r.chg))
+          +cell(fmtS(r.settle),BLACK)+cell(fmtN(r.vol),DIM)+'</div>';
+      });
+      html+='<div style="display:grid;grid-template-columns:'+GRID+';background:'+MON_BG+';border-top:1px solid #c8d4e0;margin-bottom:6px;">'
+        +'<div style="font-size:11px;font-weight:700;color:'+DIM+';padding:4px 8px;text-align:right;">TOTAL</div>'
+        +cell(fmtN(totOI),GOLD)+cell(fmtC(totChg),cChg(totChg))+'<div></div>'+cell(fmtN(totVol),DIM)+'</div>';
+    });
+    return html;
+  }
+  var out='<div style="display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid #c8d4e0;margin-bottom:8px;">'
+    +'<span style="font-size:12px;font-weight:700;letter-spacing:2px;color:'+DIM+';">'+titleTxt+'</span>'
+    +'<span style="font-size:11px;color:'+DIM+';margin-left:auto;">As of: '+od.last_date+'</span></div>';
+  out+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 14px;">';
+  out+='<div>'+buildSec('CALLS',GREEN,'calls','#f0faf4')+'</div>';
+  out+='<div>'+buildSec('PUTS',RED,'puts','#fef2f2')+'</div>';
+  out+='</div>';
+  var inner = _oiPngHdr(titleTxt) + '<div style="background:#f0f2f5;padding:4px 0 8px;">' + out + '</div>' + _oiPngFtr();
   _oiPngRender(inner, 'OI_Options_'+comm+'_'+DATA.last_date+'.png', 1060);
 }
 
