@@ -29,24 +29,27 @@ from datetime import date
 
 _D = {
     # ── Cotton No. 2 ─────────────────────────────────────────────────────────
-    # opt_exp: last Friday >= 2 business days before FND  — CONFIRMED vs Black-76/ICE DMR
-    'CTN6': {'fnd': date(2026,  6, 24), 'ltd': date(2026,  7,  9), 'opt_exp': date(2026,  6, 19)},
-    'CTV6': {'fnd': date(2026,  9, 24), 'ltd': date(2026, 10,  8), 'opt_exp': date(2026,  9, 18)},
+    # opt_exp: last Friday >= 5 business days before FND (ICE spec, ProductSpec_1027)
+    #          CONFIRMED vs ICE calendar (2026-06-03)
+    'CTN6': {'fnd': date(2026,  6, 24), 'ltd': date(2026,  7,  9), 'opt_exp': date(2026,  6, 12)},
+    'CTV6': {'fnd': date(2026,  9, 24), 'ltd': date(2026, 10,  8), 'opt_exp': date(2026,  9, 11)},
     'CTZ6': {'fnd': date(2026, 11, 23), 'ltd': date(2026, 12,  8), 'opt_exp': date(2026, 11, 13)},
     'CTH7': {'fnd': date(2027,  2, 22), 'ltd': date(2027,  3,  8), 'opt_exp': date(2027,  2, 12)},
     'CTK7': {'fnd': date(2027,  4, 26), 'ltd': date(2027,  5,  6), 'opt_exp': date(2027,  4, 16)},
-    'CTN7': {'fnd': date(2027,  6, 24), 'ltd': date(2027,  7,  8), 'opt_exp': date(2027,  6, 18)},
+    'CTN7': {'fnd': date(2027,  6, 24), 'ltd': date(2027,  7,  8), 'opt_exp': date(2027,  6, 11)},
     'CTV7': {'fnd': date(2027,  9, 24), 'ltd': date(2027, 10,  7), 'opt_exp': date(2027,  9, 17)},
-    'CTZ7': {'fnd': date(2027, 11, 23), 'ltd': date(2027, 12,  8), 'opt_exp': date(2027, 11, 19)},
-    'CTH8': {'fnd': date(2028,  2, 23), 'ltd': date(2028,  3,  9), 'opt_exp': date(2028,  2, 18)},
-    'CTK8': {'fnd': date(2028,  4, 24), 'ltd': date(2028,  5,  8), 'opt_exp': date(2028,  4, 14)},
+    'CTZ7': {'fnd': date(2027, 11, 23), 'ltd': date(2027, 12,  8), 'opt_exp': date(2027, 11, 12)},
+    'CTH8': {'fnd': date(2028,  2, 23), 'ltd': date(2028,  3,  9), 'opt_exp': date(2028,  2, 11)},
+    'CTK8': {'fnd': date(2028,  4, 24), 'ltd': date(2028,  5,  8), 'opt_exp': date(2028,  4,  7)},
 
     # ── Coffee C ─────────────────────────────────────────────────────────────
-    # opt_exp: 2nd Friday of month preceding delivery — CONFIRMED vs ICE /products/14 (2026-05-22)
+    # opt_exp: 2nd Friday of month preceding delivery, min 4 biz days to FND
+    #          holidays excluded from biz day count — CONFIRMED (2026-06-03)
+    #          KCH7: 2nd Fri (Feb 12) unusable due to Presidents Day, -> Feb 11 (Thu)
     'KCN6': {'fnd': date(2026,  6, 22), 'ltd': date(2026,  7, 21), 'opt_exp': date(2026,  6, 12)},
     'KCU6': {'fnd': date(2026,  8, 21), 'ltd': date(2026,  9, 18), 'opt_exp': date(2026,  8, 14)},
-    'KCZ6': {'fnd': date(2026, 11, 19), 'ltd': date(2026, 12, 18), 'opt_exp': date(2026, 11, 12)},
-    'KCH7': {'fnd': date(2027,  2, 18), 'ltd': date(2027,  3, 18), 'opt_exp': date(2027,  2, 10)},
+    'KCZ6': {'fnd': date(2026, 11, 19), 'ltd': date(2026, 12, 18), 'opt_exp': date(2026, 11, 13)},
+    'KCH7': {'fnd': date(2027,  2, 18), 'ltd': date(2027,  3, 18), 'opt_exp': date(2027,  2, 11)},
     'KCK7': {'fnd': date(2027,  4, 22), 'ltd': date(2027,  5, 18), 'opt_exp': date(2027,  4,  9)},
     'KCN7': {'fnd': date(2027,  6, 22), 'ltd': date(2027,  7, 20), 'opt_exp': date(2027,  6, 11)},
     'KCU7': {'fnd': date(2027,  8, 23), 'ltd': date(2027,  9, 20), 'opt_exp': date(2027,  8, 13)},
@@ -162,8 +165,8 @@ def get_ltd(code: str) -> date | None:
 
 def get_opt_exp(code: str) -> date | None:
     """Option expiry date — accepts ICE code or BBG slot.
-    All four commodities CONFIRMED vs ICE expiry calendar pages (2026-05-22).
-    CT: last Friday >= 2 biz days before FND.
+    All four commodities CONFIRMED vs ICE expiry calendar pages (2026-06-03).
+    CT: last Friday >= 5 biz days before FND (ICE ProductSpec_1027).
     KC/CC: 2nd Friday of month preceding delivery.
     SB: 15th of month preceding delivery (adjusted for weekends/holidays).
     """
@@ -181,9 +184,9 @@ def get_bbg_slot(ice_code: str) -> str | None:
 if __name__ == '__main__':
     # Quick smoke-test
     tests = [
-        ('CTN6',   '2026-06-24', '2026-07-09', '2026-06-19', 'CTJUL1'),
-        ('CTJUL1', '2026-06-24', '2026-07-09', '2026-06-19', None),
-        ('KCZ6',   '2026-11-19', '2026-12-18', '2026-11-12', 'KCDEC1'),
+        ('CTN6',   '2026-06-24', '2026-07-09', '2026-06-12', 'CTJUL1'),
+        ('CTJUL1', '2026-06-24', '2026-07-09', '2026-06-12', None),
+        ('KCZ6',   '2026-11-19', '2026-12-18', '2026-11-13', 'KCDEC1'),
         ('CCN6',   '2026-06-24', '2026-07-16', '2026-06-12', 'CCJUL1'),
         ('SBN6',   '2026-07-01', '2026-06-30', '2026-06-15', 'SBJUL1'),
     ]
