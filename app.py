@@ -151,13 +151,13 @@ def load_data():
         ))
 
         last_rows = [r for r in comm_rows if r['date'] == last_date]
-        agg_oi    = sum(r['open_int'] for r in last_rows if r['open_int'])
-        agg_chg   = sum(r['oi_chg']   for r in last_rows if r['oi_chg'])
+        agg_oi    = sum(r['open_int'] for r in last_rows if r['open_int'] is not None)
+        agg_chg   = sum(r['oi_chg']   for r in last_rows if r['oi_chg']   is not None)
 
         from collections import defaultdict
         daily_agg    = defaultdict(int)
         for r in comm_rows:
-            if r['open_int']:
+            if r['open_int'] is not None:
                 daily_agg[r['date']] += r['open_int']
         sorted_dates = sorted(daily_agg.keys())
 
@@ -2096,11 +2096,11 @@ def index():
 @app.route('/api/data', methods=['GET'])
 def api_data():
     try:
-        as_of = datetime.fromtimestamp(DATA_FILE.stat().st_mtime).strftime('%Y-%m-%d')
         rows = []
         with open(DATA_FILE, 'r', encoding='utf-8', newline='') as f:
             for r in csv.DictReader(f):
                 rows.append(dict(r))
+        as_of = max((r['date'] for r in rows), default='unknown')
         resp = jsonify({'source': 'VLM Commodities — Open Interest Dashboard', 'as_of': as_of, 'data': rows})
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp
@@ -2111,7 +2111,6 @@ def api_data():
 @app.route('/api/latest', methods=['GET'])
 def api_latest():
     try:
-        as_of = datetime.fromtimestamp(DATA_FILE.stat().st_mtime).strftime('%Y-%m-%d')
         rows = []
         with open(DATA_FILE, 'r', encoding='utf-8', newline='') as f:
             for r in csv.DictReader(f):
@@ -2120,6 +2119,7 @@ def api_latest():
         if rows:
             last_date = max(r['date'] for r in rows)
             rows = [r for r in rows if r['date'] == last_date]
+        as_of = last_date if rows else 'unknown'
         resp = jsonify({'source': 'VLM Commodities — Open Interest Dashboard', 'as_of': as_of, 'data': rows})
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp

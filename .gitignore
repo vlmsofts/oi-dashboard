@@ -28,3 +28,6 @@ fix_fnd.py
 migrate_options_commodity.py
 test_*.py
 build_whatsapp_oi old all commods.py
+
+# Environment secrets
+.env

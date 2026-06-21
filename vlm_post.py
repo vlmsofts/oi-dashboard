@@ -8,8 +8,16 @@ import urllib.request
 import urllib.error
 import json
 
+def _load_local_env(_p=os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')):
+    if os.path.exists(_p):
+        for _ln in open(_p, encoding='utf-8'):
+            _ln=_ln.strip()
+            if _ln and not _ln.startswith('#') and '=' in _ln:
+                _k,_v=_ln.split('=',1); os.environ.setdefault(_k.strip(), _v.strip())
+_load_local_env()
+
 VLM_URL    = "https://test.vlmdata.com"
-VLM_SECRET = "0KT6RJ_W1GOkizIfi5nXhhFd5BLEhHtMEkwqUYed4pk"
+VLM_SECRET = os.environ.get("VLM_PUSH_SECRET")
 
 
 def post_to_vlm(title, content, category="oi", excerpt="", status="published"):
