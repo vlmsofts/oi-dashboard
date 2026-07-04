@@ -6,10 +6,11 @@ __pycache__/
 # Logs
 *.log
 
-# Bloomberg bootstrap backups
+# Bloomberg bootstrap backups + pre-fix data snapshots
 *.bak
 *.bak2
 *.bak_*
+*.backup_*
 
 # Generated output (WhatsApp images, debug renders)
 output/
@@ -20,7 +21,9 @@ _debug_rendered.html
 
 # Temporary / archived files
 *.txt
-VLM_OI_Dashboard_Handoff_v2.md
+
+# Reference docs are tracked under options_dashboard_DOCS/ (see !rule below)
+!options_dashboard_DOCS/
 
 # Old / debug / one-off scripts
 _check_js.py
