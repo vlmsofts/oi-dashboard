@@ -22,9 +22,8 @@ ICE code form used throughout this module and by both consumers: 4 chars,
   Month codes: F=Jan G=Feb H=Mar J=Apr K=May M=Jun N=Jul Q=Aug U=Sep V=Oct X=Nov Z=Dec
   Year digit : last digit of year (6=2026, 7=2027, 8=2028, 9=2029)
 
-PUBLIC API -- UNCHANGED. Consumers (VLM Data/vlm_master_fetch.py and
-Open interest dashboard/oi_ice_fetcher.py) call these with a SPECIFIC 4-char
-ICE code and must keep working with zero changes:
+PUBLIC API -- UNCHANGED. Consumer (VLM Data/vlm_master_fetch.py) calls these
+with a SPECIFIC 4-char ICE code and must keep working with zero changes:
 
     from contract_dates import get_fnd, get_ltd, get_opt_exp, get_bbg_slot
     from contract_dates import contract_month_label, ice_to_bbg, _D, _BBG_TO_ICE
