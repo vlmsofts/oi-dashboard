@@ -2056,6 +2056,15 @@ def load_options(comm='CT'):
         except Exception: pass
         return 0.0
 
+    def gnum(r, field):
+        """Parse a stored Black-76 Greek/IV; None when the strike had no solve."""
+        v = r.get(field, '')
+        v = v.strip() if isinstance(v, str) else v
+        if v in ('', 'None', None):
+            return None
+        try: return float(v)
+        except (TypeError, ValueError): return None
+
     result = {'last_date': last_date, 'months': months, 'calls': {}, 'puts': {}}
     for m in months:
         for pc, key in (('C','calls'), ('P','puts')):
@@ -2074,6 +2083,13 @@ def load_options(comm='CT'):
                         'chg':    chg,
                         'settle': settle,
                         'vol':    vol,
+                        # Black-76 IV/Greeks (computed upstream at F_parity + base SOFR).
+                        # Additive API fields; None where the strike had no IV solve.
+                        'iv':     gnum(r, 'iv_pct'),
+                        'delta':  gnum(r, 'delta'),
+                        'gamma':  gnum(r, 'gamma'),
+                        'vega':   gnum(r, 'vega'),
+                        'theta':  gnum(r, 'theta'),
                     })
             result[key][m].sort(key=lambda x: x['strike'])
     return result
