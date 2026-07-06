@@ -7,6 +7,7 @@ import sys; sys.dont_write_bytecode = True
 import json, pathlib, csv
 from datetime import datetime
 from flask import Flask, jsonify
+from vlm_auth import install_gate
 
 BASE_DIR  = pathlib.Path(__file__).parent
 DATA_FILE    = BASE_DIR / 'data' / 'oi_data.csv'
@@ -14,6 +15,7 @@ OPT_FILE     = BASE_DIR / 'data' / 'options_oi.csv'
 CSS_FILE  = BASE_DIR / 'vlm_design_system.css'
 
 app    = Flask(__name__)
+install_gate(app, gated_paths=("/",))  # VLM auth gate
 server = app
 
 # ── Contract code -> human label  (CTK6 -> "MAY 26") ────────────────────────────
