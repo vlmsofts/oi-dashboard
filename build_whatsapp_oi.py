@@ -287,13 +287,13 @@ def render_png(html, png_path):
 
 def build_whatsapp_oi(output_base='output'):
     """Generate one PNG per commodity (CT, KC, CC, SB)."""
-    # Get date from futures data — use trade date (prior business day), not release date
+    # oi_data.csv is ALREADY trade-date-stamped (daily job writes the actual trade
+    # date via `trade_date = max(all_dates)`, 2026-07 fix). Its max date IS the trade
+    # date to display — do NOT subtract another business day (that double-shifted the
+    # label, e.g. 07-06 -> 07-03 across the Jul-4 holiday). Use the max date directly.
     all_rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
-    release_date = max(r['date'] for r in all_rows)
-    _d = datetime.strptime(release_date, '%Y-%m-%d').date() - timedelta(days=1)
-    while _d.weekday() >= 5:
-        _d -= timedelta(days=1)
-    as_of = _d.strftime('%Y-%m-%d')
+    release_date = max(r['date'] for r in all_rows)   # kept name for the options join below
+    as_of = release_date
 
     out_dir = pathlib.Path(output_base) / 'whatsapp' / as_of
     out_dir.mkdir(parents=True, exist_ok=True)
