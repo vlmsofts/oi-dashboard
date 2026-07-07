@@ -122,6 +122,75 @@ def main():
     prov = []   # (date, security_des, field, old, new, note)
     n_expire = n_iv = n_greek_rows = 0
 
+    # ===================================================================
+    # GATED OVERWRITE PASS: correct the 2026-06-03 single-run mis-stamp.
+    # Lou-approved 2026-07-07. EVERY option row on 2026-06-03 (and ONLY that
+    # date, verified) carries an expiry ~1wk LATER than the same contract's
+    # expiry on every other date -- 23 contracts, and IVs solved off the wrong
+    # (late) expiry are themselves wrong. This is NOT fill-empty-only: it
+    # OVERWRITES populated expire_dt/days_to_exp/iv_pct/greeks on 06-03, then
+    # recomputes IV/greeks off the corrected expiry. Correct expiry = the
+    # per-contract MAJORITY expiry across all OTHER dates (matches ICE authority).
+    # ===================================================================
+    MISSTAMP_DATE = '2026-06-03'
+    # Build per-ice-code majority expiry from every date EXCEPT the mis-stamp date.
+    _exp_dates = defaultdict(lambda: defaultdict(set))  # ice -> expiry -> {dates}
+    for r in rows:
+        if r['date'] == MISSTAMP_DATE:
+            continue
+        ice = (r['security_des'] or '')[:4]
+        if r['expire_dt'].strip():
+            _exp_dates[ice][r['expire_dt']].add(r['date'])
+    majority_exp = {}
+    for ice, exps in _exp_dates.items():
+        majority_exp[ice] = max(exps, key=lambda e: len(exps[e]))
+
+    n_0603_exp = n_0603_iv = 0
+    for r in rows:
+        if r['date'] != MISSTAMP_DATE:
+            continue
+        ice = (r['security_des'] or '')[:4]
+        correct = majority_exp.get(ice)
+        if correct is None or r['expire_dt'].strip() == correct:
+            continue  # nothing to correct (or already right)
+        td = trade_dt_of(r['date'])
+        pc = pc_of(r)
+        oe = date.fromisoformat(correct)
+        old_exp = r['expire_dt']; old_dte = r['days_to_exp']; old_iv = r['iv_pct']
+        dte = (oe - td).days
+        # overwrite expiry + dte
+        r['expire_dt'] = correct
+        r['days_to_exp'] = str(dte)
+        prov.append((r['date'], r['security_des'], 'expire_dt', old_exp, correct, 'MISSTAMP_0603_fix'))
+        prov.append((r['date'], r['security_des'], 'days_to_exp', old_dte, str(dte), 'MISSTAMP_0603_fix'))
+        n_0603_exp += 1
+        # recompute IV/greeks off corrected expiry IF the row had an IV (else leave blank)
+        if old_iv.strip() == '' or pc not in ('C', 'P'):
+            continue
+        K = strike_of(r); settle = _f(r['px_settle'])
+        F = fwd_of((r['date'], r['commodity'], r['contract_month']), td, oe) if (K and settle) else None
+        new_iv = None
+        if F and dte >= MIN_DTE_DAYS and K and K > 0 and settle and settle > 0:
+            iv = implied_vol(F, K, dte / 365.0, RFR, settle, pc == 'C')
+            if iv:
+                new_iv = str(round(iv * 100, 4))
+        # overwrite iv + greeks with recomputed (or blank if unsolvable on corrected expiry)
+        r['iv_pct'] = new_iv if new_iv is not None else ''
+        prov.append((r['date'], r['security_des'], 'iv_pct', old_iv, r['iv_pct'], 'MISSTAMP_0603_recompute'))
+        if new_iv is not None:
+            g = black76_greeks(F, K, dte / 365.0, RFR, iv, pc == 'C')
+            for fld, prec in (('delta', 4), ('gamma', 6), ('vega', 6), ('theta', 6)):
+                old_g = r[fld]
+                r[fld] = str(round(g[fld], prec)) if g else ''
+                prov.append((r['date'], r['security_des'], fld, old_g, r[fld], 'MISSTAMP_0603_recompute'))
+        else:
+            for fld in ('delta', 'gamma', 'vega', 'theta'):
+                old_g = r[fld]
+                if old_g.strip() != '':
+                    r[fld] = ''
+                    prov.append((r['date'], r['security_des'], fld, old_g, '', 'MISSTAMP_0603_recompute'))
+        n_0603_iv += 1
+
     for r in rows:
         ice = (r['security_des'] or '')[:4]
         td = trade_dt_of(r['date'])
@@ -186,9 +255,13 @@ def main():
         w.writerows(prov)
 
     print('rows: %d (unchanged)' % len(rows))
+    print('--- additive fill-empty-only ---')
     print('expire_dt+days_to_exp filled : %d' % n_expire)
     print('iv_pct filled                : %d' % n_iv)
     print('greek-rows filled            : %d' % n_greek_rows)
+    print('--- gated 2026-06-03 mis-stamp correction (OVERWRITES) ---')
+    print('expire/dte corrected         : %d' % n_0603_exp)
+    print('iv/greeks recomputed         : %d' % n_0603_iv)
     print('provenance entries           : %d' % len(prov))
     print('wrote %s' % OUT)
     print('wrote %s' % PROV)
