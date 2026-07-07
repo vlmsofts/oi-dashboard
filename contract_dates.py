@@ -139,6 +139,11 @@ def _build_calendar_from_json(path):
             continue
 
         # First index option OPT_LTD by 4-char code for this product.
+        # COMPLETENESS GUARD: a listed option with NO parseable OPT_LTD is a data
+        # gap in contract_expiries.json (seen with SBX6). Without an expiry the
+        # option's rows get no DTE and blank Black-76 IV downstream, silently.
+        # Warn at build time so the monthly JSON refresh catches it -- the code
+        # cannot invent a date that isn't in the source.
         opt_ltd_by_code = {}
         for ocode, oinfo in (pdata.get('options', {}) or {}).items():
             key = _to_4char(ocode)
@@ -147,6 +152,10 @@ def _build_calendar_from_json(path):
             d = _parse_iso((oinfo or {}).get('OPT_LTD'))
             if d:
                 opt_ltd_by_code[key] = d
+            else:
+                _warn('option ' + str(ocode) + ' (' + str(comm) +
+                      ') has no parseable OPT_LTD in contract_expiries.json -- '
+                      'its option rows will get no expiry/DTE/IV. Fix at refresh.')
 
         # Then walk the futures and attach the matching option expiry.
         for fcode, finfo in (pdata.get('futures', {}) or {}).items():
@@ -164,6 +173,25 @@ def _build_calendar_from_json(path):
             if opt_exp is not None:
                 entry['opt_exp'] = opt_exp
             out[key] = entry
+
+        # SERIAL-MONTH FIX (structural, not a per-symbol patch). Serial option
+        # months (CT: Jan=F, Sep=U, Nov=X; also CC/KC Q,V and SB F,Q,U) have NO
+        # listed FUTURE, so the futures walk above never creates a _D entry for
+        # them and their expiry is lost -- blanking DTE and Black-76 IV for every
+        # serial-tenor option row across ALL FOUR commodities. The option's own
+        # OPT_LTD already lives in the JSON (it is what Black-76 T needs); the old
+        # loop just never read it for future-less codes. Carry any option-only
+        # code (not already added from a future) in as an OPTION-ONLY entry:
+        #   fnd/ltd = None  (a serial has no futures FND/LTD -- correct, not a gap)
+        #   opt_exp = the option's own OPT_LTD  (drives time-to-expiry)
+        # ADDITIVE by construction: it only fills codes absent from `out`, so it
+        # can never alter a quarterly entry. Proven (2026-07-07) to leave the
+        # dynamic BBG generic<->ICE slot maps byte-identical: no consumer generic
+        # requests a serial month token, so these entries stay out of slot
+        # resolution and only surface via direct get_opt_exp(<serial code>).
+        for ocode, oe in opt_ltd_by_code.items():
+            if ocode not in out:
+                out[ocode] = {'fnd': None, 'ltd': None, 'opt_exp': oe}
 
     if not out:
         _warn('contract_expiries.json produced an empty calendar -- '
