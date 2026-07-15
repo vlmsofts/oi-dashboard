@@ -78,18 +78,35 @@ def load_futures(comm='CT'):
     agg_chg = sum(r['oi_chg'] for r in result)
     return result, agg_oi, agg_chg, last_date
 
+def _next_bday(d_str):
+    """Next business day (weekend-only shift, mirrors vlm_master_fetch.py's convention).
+    Options rows are stamped with the RELEASE date = trade_date + 1 business day, while
+    oi_data.csv is stamped with the TRADE date. To pair the same session, advance the
+    futures trade date by one business day to hit the matching options release row."""
+    d = datetime.strptime(d_str, '%Y-%m-%d').date() + timedelta(days=1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d.strftime('%Y-%m-%d')
+
+
 def load_options_top10(comm='CT', target_date=None):
     """Load top 10 options by absolute OI change for a given commodity.
-    target_date: use the futures release date so options and futures stay in sync.
-    Falls back to options max date if target_date not present in options CSV.
+    target_date: the options RELEASE date (= futures trade date + 1 bday) so options and
+    futures show the SAME trading session. Falls back to options max date (with a warning)
+    if target_date not present in options CSV.
     """
     rows = list(csv.DictReader(OPT_FILE.open(encoding='utf-8')))
     available = sorted({r['date'] for r in rows})
+    stale = False
     if target_date and target_date in available:
         last_date = target_date
     elif target_date and target_date not in available:
-        print(f'  WARNING: options CSV has no data for {target_date} (latest: {available[-1] if available else "none"}) — options section will be empty')
-        return [], target_date
+        # T+1 options release not landed yet — degrade LOUDLY: use the latest available
+        # options session but flag it, so a stale-by-a-day panel is never shown as same-day.
+        last_date = available[-1] if available else ''
+        stale = True
+        print(f'  WARNING: options CSV has no release for {target_date} '
+              f'(latest: {last_date or "none"}) — showing latest available, flagged STALE')
     else:
         last_date = available[-1] if available else ''
     today = [r for r in rows if r['date'] == last_date and r.get('commodity', 'CT') == comm]
@@ -125,7 +142,7 @@ def load_options_top10(comm='CT', target_date=None):
             continue
     # Sort by absolute change, take top 10
     parsed.sort(key=lambda x: abs(x['chg']), reverse=True)
-    return parsed[:10], last_date
+    return parsed[:10], last_date, stale
 
 
 def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
@@ -292,8 +309,11 @@ def build_whatsapp_oi(output_base='output'):
     # date to display — do NOT subtract another business day (that double-shifted the
     # label, e.g. 07-06 -> 07-03 across the Jul-4 holiday). Use the max date directly.
     all_rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
-    release_date = max(r['date'] for r in all_rows)   # kept name for the options join below
-    as_of = release_date
+    trade_date = max(r['date'] for r in all_rows)   # oi_data.csv is trade-date-stamped
+    as_of = trade_date
+    # Options rows are RELEASE-date-stamped (= trade_date + 1 bday). Target that release
+    # so the options panel shows the SAME session as the futures panel (not yesterday's).
+    opt_target = _next_bday(trade_date)
 
     out_dir = pathlib.Path(output_base) / 'whatsapp' / as_of
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -304,7 +324,7 @@ def build_whatsapp_oi(output_base='output'):
         if not futures:
             print(f'  No futures data for {comm} — skipping')
             continue
-        opts, _ = load_options_top10(comm, target_date=release_date)
+        opts, _, _ = load_options_top10(comm, target_date=opt_target)
         html = build_html(futures, agg_oi, agg_chg, opts, as_of, comm)
         png_path = out_dir / f'OI_Monitor_{comm}_{as_of}.png'
         result = render_png(html, png_path)
@@ -334,11 +354,12 @@ def main():
                 _ans = 'n'
             if _ans == 'y':
                 all_rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
-                as_of_date = max(r['date'] for r in all_rows)
+                as_of_date = max(r['date'] for r in all_rows)   # futures trade date
+                opt_target = _next_bday(as_of_date)              # options release date
                 site_html = ''
                 for comm in ['CT', 'KC', 'CC', 'SB']:
                     futures, agg_oi, agg_chg, _ = load_futures(comm)
-                    opts, _ = load_options_top10(comm, target_date=as_of_date)
+                    opts, _, _ = load_options_top10(comm, target_date=opt_target)
                     site_html += build_html(futures, agg_oi, agg_chg, opts, as_of_date, comm)
                 post_to_vlm(
                     title    = f'Open Interest Monitor — {as_of_date}',
