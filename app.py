@@ -1552,7 +1552,7 @@ function _renderOptContent(od) {
             'border-bottom:1px solid #1e3a5f;margin-bottom:10px;">'+
             '<span style="font-size:12px;font-weight:700;letter-spacing:2px;color:'+DIM+';">'+
             commName.toUpperCase()+' OPTIONS — OI BY CONTRACT MONTH</span>'+
-            '<span style="font-size:11px;color:#475569;margin-left:auto;">As of: '+od.last_date+'</span></div>';
+            '<span style="font-size:11px;color:#475569;margin-left:auto;">'+od.last_date+' &nbsp;·&nbsp; as of trade date '+_prevBday(od.last_date)+'</span></div>';
   out += histHtml;
   out += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">';
   out += '<div>'+buildSection('CALLS', GREEN, 'calls', '#0a2010')+'</div>';
@@ -1578,6 +1578,33 @@ function _oiPngHdr(titleTxt) {
 }
 function _oiPngFtr() {
   return '<div style="background:#0d1117;padding:7px 24px;font-size:12px;color:#2a3a48;font-family:Arial,sans-serif;border-top:1px solid #1e2d3d;">VLM Commodities &nbsp;|&nbsp; Open Interest Monitor &nbsp;|&nbsp; vlmdata.com &nbsp;|&nbsp; ' + DATA.last_date + '</div>';
+}
+/* Prior business day of a YYYY-MM-DD string (weekend-only shift). Parses date
+   components explicitly to avoid new Date('YYYY-MM-DD') UTC-midnight timezone drift. */
+function _prevBday(dStr) {
+  var p = dStr.split('-'); var d = new Date(+p[0], +p[1]-1, +p[2]);
+  d.setDate(d.getDate() - 1);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  var mm = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+  return d.getFullYear() + '-' + mm + '-' + dd;
+}
+/* Options-only PNG header/footer. Options rows are RELEASE-date-stamped and carry the
+   PRIOR session's OI (standard OI convention). Headline shows the release date; subtext
+   shows "as of trade date X". Mirrors _oiPngHdr styling but never uses DATA.last_date
+   (the futures date), which would be the wrong convention for an options image. */
+function _oiPngHdrOpt(titleTxt, release, trade) {
+  return '<div style="background:#0d1117;padding:14px 24px 10px;border-bottom:1px solid #1e2d3d;display:flex;align-items:center;">'
+    + '<div><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:1px;line-height:1;font-family:Arial,sans-serif;">VLM COMMODITIES</div>'
+    + '<div style="font-size:13px;color:#4a9aba;letter-spacing:2px;text-transform:uppercase;margin-top:4px;font-family:Arial,sans-serif;">OPTIONS OPEN INTEREST</div></div>'
+    + '</div>'
+    + '<div style="background:#111825;padding:7px 24px;border-bottom:3px solid #d4b44a;display:flex;gap:32px;align-items:center;">'
+    + '<span style="font-size:13px;color:#6b8090;font-family:Arial,sans-serif;">' + release + '&nbsp;<strong style="color:#e0e8f0;">as of trade date ' + trade + '</strong></span>'
+    + '<span style="font-size:13px;color:#6b8090;font-family:Arial,sans-serif;">Source&nbsp;<strong style="color:#e0e8f0;">Bloomberg / ICE</strong></span>'
+    + '</div>'
+    + '<div style="background:#151e2a;padding:7px 24px;font-size:14px;font-weight:700;color:#d4b44a;letter-spacing:2px;text-transform:uppercase;font-family:Arial,sans-serif;border-left:4px solid #d4b44a;">' + titleTxt + '</div>';
+}
+function _oiPngFtrOpt(release) {
+  return '<div style="background:#0d1117;padding:7px 24px;font-size:12px;color:#2a3a48;font-family:Arial,sans-serif;border-top:1px solid #1e2d3d;">VLM Commodities &nbsp;|&nbsp; Options Open Interest &nbsp;|&nbsp; vlmdata.com &nbsp;|&nbsp; ' + release + '</div>';
 }
 function _oiPngRender(innerHtml, filename, width) {
   var w = width || 1300;
@@ -1804,15 +1831,22 @@ function exportOptionsPng() {
     });
     return html;
   }
+  /* Options convention: the CSV date IS the release date (published today), and the
+     data is the PRIOR session's OI (standard OI convention). So the PNG label shows the
+     release date (od.last_date), with "as of trade date X" = release - 1 business day.
+     Do NOT use _oiPngHdr here — it hardcodes DATA.last_date (the FUTURES date), which is
+     the wrong convention for an options-only image. */
+  var optRelease = od.last_date;
+  var optTrade   = _prevBday(optRelease);
   var out='<div style="display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid #c8d4e0;margin-bottom:8px;">'
     +'<span style="font-size:12px;font-weight:700;letter-spacing:2px;color:'+DIM+';">'+titleTxt+'</span>'
-    +'<span style="font-size:11px;color:'+DIM+';margin-left:auto;">As of: '+od.last_date+'</span></div>';
+    +'<span style="font-size:11px;color:'+DIM+';margin-left:auto;">'+optRelease+' &nbsp;·&nbsp; as of trade date '+optTrade+'</span></div>';
   out+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 14px;">';
   out+='<div>'+buildSec('CALLS',GREEN,'calls','#f0faf4')+'</div>';
   out+='<div>'+buildSec('PUTS',RED,'puts','#fef2f2')+'</div>';
   out+='</div>';
-  var inner = _oiPngHdr(titleTxt) + '<div style="background:#f0f2f5;padding:4px 0 8px;">' + out + '</div>' + _oiPngFtr();
-  _oiPngRender(inner, 'OI_Options_'+comm+'_'+DATA.last_date+'.png', 1060);
+  var inner = _oiPngHdrOpt(titleTxt, optRelease, optTrade) + '<div style="background:#f0f2f5;padding:4px 0 8px;">' + out + '</div>' + _oiPngFtrOpt(optRelease);
+  _oiPngRender(inner, 'OI_Options_'+comm+'_'+optRelease+'.png', 1060);
 }
 
 function clearOptHistory() {
