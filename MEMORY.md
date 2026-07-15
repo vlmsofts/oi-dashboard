@@ -1,5 +1,43 @@
 # Open interest dashboard — MEMORY
 
+## 2026-07-15 — Futures/options date-convention desync (off-by-one join + phantom holiday row)
+
+**Defect class:** `oi_data.csv` (futures) is TRADE-date stamped; `options_oi.csv` is
+RELEASE-date stamped (= trade date + 1 business day). Any code that joins/compares the two,
+or assumes both share the same "latest date", is off-by-one. Became live when the prior
+session made futures trade-date-stamped (they used to coincide by luck).
+
+**Three surfaces fixed:**
+1. **`build_whatsapp_oi.py` (commit def6f5d):** the client PNG joined options on the futures
+   TRADE date → showed the PRIOR session's options next to current futures (missed the day's
+   biggest OI moves — Lou caught the missing 14-Jul CTZ6 90/80 call flow). Fix: `_next_bday(trade_date)`
+   targets the options RELEASE row; applied to PNG path + site-publish path; loud STALE fallback.
+   Verified vs ICE DMR + WebICE blotter to the digit.
+2. **`app.py` (commit bade6c8):** `exportOptionsPng` stamped the options PNG with `DATA.last_date`
+   (FUTURES date) in banner+filename while the section header used the options release date =
+   two dates on one image. Fix: options PNG + on-page options tab show RELEASE date as headline
+   + "as of trade date X" subtext (Lou's convention). Added `_prevBday`/`_oiPngHdrOpt`/`_oiPngFtrOpt`;
+   shared `_oiPngHdr/_oiPngFtr` left alone (other 3 exports correct). Live web-dashboard main page
+   was NOT buggy (futures/options in separate tabs with separate stamps).
+3. **`VLM Data/vlm_master_fetch.py` (commit df6fe31, LOCAL — VLM Data has NO git remote):** ROOT
+   cause. Options job stamped rows with run calendar date (`today_str`) + computed Black-76 `trade_dt`
+   via blind `today - 1 weekday`. Neither holiday-aware. Futures never had this (trade date from
+   real Bloomberg session via `fetch_prior_session_finals`, filters holiday zero-bars). Fix:
+   `run_options_append(session, raw, today_str, oi_trade_date)` — derives `release_date =
+   oi_trade_date + 1 bday`, `trade_dt = oi_trade_date`, dedup keys on release_date, refuses to
+   write if oi_trade_date is None.
+
+**Phantom cleaned (in bade6c8):** Fri 2026-07-03 = July 4 holiday; BBG published the 07-02
+session stamped 07-03 (LEGIT). Mon 07-06 (real trading day) ran with NO holiday guard and
+RE-published the same 07-02 data stamped 07-06 — byte-identical dup, no futures session maps
+to it. Removed the 1,930 rows dated **07-06** (kept legit 07-03). Backup
+`data/options_oi.backup_pre_0706clean_2026-07-15.csv` (gitignored). 136,053→134,123 lines.
+
+**Blast radius:** `data/options_oi.csv` is a shared contract (gateway + WhatsApp + backfill +
+web dashboard). Cleanup was gated (Lou sign-off, backup, verified only 07-06 removed, schema
+17 cols, neighbors intact). Verified: full desync sweep found 07-06 was the ONLY true phantom;
+05-26/06-22 "orphans" are real holiday-boundary sessions (Memorial Day / Juneteenth), not dups.
+
 ## 2026-07-07 — Serial-month options got no expiry/IV (contract_dates.py structural fix)
 
 **Defect:** `options_oi.csv` left `expire_dt`/`days_to_exp`/`iv_pct` BLANK for every
