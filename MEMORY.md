@@ -1,5 +1,19 @@
 # Open interest dashboard — MEMORY
 
+## 🔴 ICE EXPIRY AUTHORITY (Lou 2026-07-16) — the overarching truth for ALL expiry
+ICE's own /expiry pages are the UNDISPUTED authority for every product's expiry/FTD/LTD.
+Any stored date differing from ICE = OUR data is wrong. The 8 sources:
+CT fut /products/254 · opt /products/1027 · CC fut /products/7 · opt /products/8 ·
+KC fut /products/15 · opt /products/14 · SB fut /products/23 · opt /products/22
+(all `ice.com/products/{id}/{Name}/{Futures|Options}/expiry`).
+Served at **`vlmapi.vlmdata.com/v1/expiry/{CT|CC|KC|SB}/{futures|options}`**, refreshed
+monthly. THIS REPO'S angle: `contract_expiries.json` (manual annual snapshot →
+`get_opt_exp`/`contract_dates.py` → `options_oi.csv` expire_dt/days_to_exp) is the
+drift-prone root the endpoint is meant to REPLACE — migrate `_build_calendar_from_json`
+onto the endpoint behind the stable getter interface (get_fnd/get_ltd/get_opt_exp). MUST
+preserve serial-month codes (F/U/X for CT — the fix at contract_dates.py serial-month
+patch). NOT yet wired — additive migration, its own change.
+
 ## 2026-07-15 — Futures/options date-convention desync (off-by-one join + phantom holiday row)
 
 **Defect class:** `oi_data.csv` (futures) is TRADE-date stamped; `options_oi.csv` is
