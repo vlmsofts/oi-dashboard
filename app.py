@@ -143,6 +143,19 @@ def load_data():
             tickers[tk]['tk_hi5']  = thi5
             tickers[tk]['tk_lo15'] = tlo15
             tickers[tk]['tk_hi15'] = thi15
+            # B3: settle day-change (today - prior session) from the two latest
+            # history rows with a numeric settle. Powers the OI-vs-price conviction
+            # read (new longs / new shorts / short covering / long liquidation).
+            # None when <2 priced sessions exist. Additive field, safe for consumers.
+            settle_chg = None
+            priced = [h for h in tickers[tk]['history']
+                      if h.get('settle') not in (None, '')]
+            if len(priced) >= 2:
+                try:
+                    settle_chg = float(priced[-1]['settle']) - float(priced[-2]['settle'])
+                except (TypeError, ValueError):
+                    settle_chg = None
+            tickers[tk]['settle_chg'] = settle_chg
 
         ordered = [tk for tk in TICKER_ORDER.get(comm, []) if tk in tickers]
         ordered += [tk for tk in tickers if tk not in ordered]
@@ -798,6 +811,24 @@ function rangeBar(cur, lo5, hi5, lo15, hi15, color) {
     + '</div></div>';
 }
 
+/* B3: OI-vs-price conviction read. Combines the day's OI change with the day's settle
+   change into the classic futures interpretation. Returns a small colored tag + a
+   descriptive tooltip; empty string when either input is missing/zero (no signal). */
+function convictionTag(oiChg, settleChg) {
+  var oc = +oiChg, sc = +settleChg;
+  if (!isFinite(oc) || !isFinite(sc) || oc === 0 || sc === 0) return '';
+  var oiUp = oc > 0, pxUp = sc > 0, tag, full, color;
+  if (oiUp && pxUp)        { tag = 'NL'; full = 'New longs (OI up, price up)';        color = 'var(--grn)'; }
+  else if (oiUp && !pxUp)  { tag = 'NS'; full = 'New shorts (OI up, price down)';      color = 'var(--red)'; }
+  else if (!oiUp && pxUp)  { tag = 'SC'; full = 'Short covering (OI down, price up)';  color = 'var(--grn)'; }
+  else                     { tag = 'LL'; full = 'Long liquidation (OI down, price down)'; color = 'var(--red)'; }
+  return '<span class="oi-conv" style="color:' + color + ';border:1px solid ' + color
+    + '55;border-radius:3px;padding:0 3px;margin-left:4px;font-size:9px;font-weight:800;'
+    + 'letter-spacing:.5px;vertical-align:middle;cursor:default;" '
+    + 'data-tip="' + full + '" onmouseenter="showTip(event,this.dataset.tip)" onmouseleave="hideTip()">'
+    + tag + '</span>';
+}
+
 function buildMonitor() {
   const body = document.getElementById('monBody');
   body.innerHTML = '';
@@ -875,7 +906,7 @@ function buildMonitor() {
       + '</span></div>'
       + '<div class="c" style="color:var(--dim);font-size:11px;">' + frontMth + '</div>'
       + '<div class="c oi-cell" data-comm="' + comm + '" data-tk="' + frontTk + '" data-oi="' + (front.open_int||'') + '">' + f0(front.open_int) + '</div>'
-      + '<div class="c ' + ((front.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(front.oi_chg) + '</div>'
+      + '<div class="c ' + ((front.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(front.oi_chg) + convictionTag(front.oi_chg, front.settle_chg) + '</div>'
       + '<div class="c" style="color:' + ((front.oi_chg||0)>=0?'var(--grn)':'var(--red)') + ';">' + fp(front.settle) + '</div>'
       + '<div class="c" style="color:' + cfg.color + ';font-weight:700;">' + f0(cd.agg_oi) + '</div>'
       + '<div class="c ' + ((cd.agg_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(cd.agg_chg) + '</div>'
@@ -905,7 +936,7 @@ function buildMonitor() {
           '<div class="cl"><span class="ctlbl">' + (seqLabels[tkKey]||lbl) + '</span></div>'
           + '<div class="c" style="color:var(--dim);font-size:11px;">' + mth + '</div>'
           + '<div class="c oi-cell" data-comm="' + comm + '" data-tk="' + tkKey + '" data-oi="' + (td.open_int||'') + '">' + f0(td.open_int) + '</div>'
-          + '<div class="c ' + ((td.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(td.oi_chg) + '</div>'
+          + '<div class="c ' + ((td.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(td.oi_chg) + convictionTag(td.oi_chg, td.settle_chg) + '</div>'
           + '<div class="c" style="color:' + ((td.oi_chg||0)>=0?'var(--grn)':'var(--red)') + ';">' + fp(td.settle) + '</div>'
           + shareCell(td.open_int, cd.agg_oi, cfg.color)
           + '<div class="c vlm-muted">—</div>'
