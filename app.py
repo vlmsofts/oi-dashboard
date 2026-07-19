@@ -1871,7 +1871,8 @@ function exportMonitorPng() {
 
 function exportSeasPng() {
   var contractSel = (document.getElementById('seasContract') || {}).value || 'Aggregate';
-  var modeLbl     = seasMode === 'band' ? 'HI/AVG/LO' : 'INDIVIDUAL YRS';
+  var modeLbl     = seasMode === 'band' ? 'HI/AVG/LO'
+                    : (seasLayout === 'grid' ? 'INDIVIDUAL YRS · GRID' : 'INDIVIDUAL YRS · SPAGHETTI');
   var titleTxt    = 'SEASONAL OI · ' + contractSel.toUpperCase() + ' · ' + modeLbl + ' · ' + seasYr + 'YR';
   var curYear     = new Date(DATA.last_date).getFullYear();
   var months      = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1902,8 +1903,10 @@ function exportSeasPng() {
     + '<table style="border-collapse:collapse;width:100%;border:1px solid #c8d4e0;">'
     + '<tbody>' + hdrRow + dataRows + '</tbody></table></div>';
 
-  /* Re-render a Chart.js chart on an offscreen canvas with white background + light grid */
-  function lightChartImg(ds, labels, w, h) {
+  /* Re-render a Chart.js chart on an offscreen canvas with white background + light grid.
+     opt = {yMin,yMax,fontSize,maxYTicks} for the grid small-multiples (shared y-scale). */
+  function lightChartImg(ds, labels, w, h, opt) {
+    opt = opt || {};
     return new Promise(function(resolve) {
       var cv = document.createElement('canvas');
       cv.width = w; cv.height = h;
@@ -1913,14 +1916,16 @@ function exportSeasPng() {
         ch.ctx.save(); ch.ctx.fillStyle='#ffffff';
         ch.ctx.fillRect(0,0,ch.canvas.width,ch.canvas.height); ch.ctx.restore();
       }};
+      var fs = opt.fontSize || 9;
       var chart = new Chart(cv, {
         type:'line', data:{labels:labels, datasets:ds},
         options:{
           responsive:false, maintainAspectRatio:false, animation:{duration:0},
           plugins:{ legend:{display:false}, tooltip:{enabled:false} },
           scales:{
-            x:{ grid:{color:'#d0dce8'}, ticks:{color:'#2d3748', font:{size:9}} },
-            y:{ grid:{color:'#d0dce8'}, ticks:{color:'#2d3748', font:{size:9}, callback:tk} }
+            x:{ grid:{color:'#d0dce8'}, ticks:{color:'#2d3748', font:{size:fs}, maxTicksLimit:opt.maxXTicks, maxRotation:0} },
+            y:{ min:opt.yMin, max:opt.yMax, grid:{color:'#d0dce8'},
+                ticks:{color:'#2d3748', font:{size:fs}, maxTicksLimit:opt.maxYTicks, callback:tk} }
           }
         },
         plugins:[whiteBg]
@@ -1953,14 +1958,52 @@ function exportSeasPng() {
     }).join('');
   }
 
-  /* Always single-commodity now (STACKED view removed). The PNG mirrors the on-screen
-     chart: band OR the individual-years multi-line (spaghetti content). GRID small-
-     multiples still export as the multi-line individual chart here — a static grid PNG
-     is a later enhancement (spec A5). */
-  var sComm = document.getElementById('seasSingleComm').value;
-  var card  = buildSeasCard(sComm);
-  var hdrEl = document.getElementById('seasSingleHdr');
+  /* PNG mirrors whatever is on screen: band | spaghetti | grid (single-commodity). */
+  var sComm  = document.getElementById('seasSingleComm').value;
+  var hdrEl  = document.getElementById('seasSingleHdr');
   var hdrTxt = hdrEl ? hdrEl.textContent : sComm + ' ' + CFG[sComm].name;
+
+  if (seasMode === 'individual' && seasLayout === 'grid') {
+    /* GRID small-multiples: one panel per prior year, gold current + blue prior,
+       shared y-scale — same as buildSeasGrid() on screen. */
+    var cfg     = CFG[sComm];
+    var ind     = computeIndividual(getSeasHist(sComm), curYear);
+    var yr      = seasYRange(ind);
+    var curArr  = ind.byYear[curYear] || Array(12).fill(null);
+    var priors  = ind.years.filter(function(y){ return y !== curYear; });
+    var fmtSm   = function(v){ return v==null ? '—' : (v>=1e6?(v/1e6).toFixed(2)+'M':Math.round(v/1e3)+'k'); };
+    Promise.all(priors.map(function(y){
+      var ds = [
+        {data:curArr,         borderColor:cfg.color, borderWidth:2,   pointRadius:0, tension:0, spanGaps:false, order:0},
+        {data:ind.byYear[y],  borderColor:'#1e6fd4', borderWidth:1.6, pointRadius:0, tension:0, spanGaps:false, order:1},
+      ];
+      return lightChartImg(ds, months, 300, 150, {yMin:yr.min, yMax:yr.max, fontSize:8, maxYTicks:3, maxXTicks:6})
+        .then(function(img){ return {year:y, img:img}; });
+    })).then(function(cells) {
+      var cellHtml = cells.map(function(c){
+        return '<div style="background:#ffffff;border:1px solid #c8d4e0;border-radius:4px;padding:8px 8px 6px;">'
+          + '<div style="font-size:12px;font-weight:800;color:'+cfg.color+';font-family:Arial,sans-serif;">'+c.year+'</div>'
+          + '<div style="font-size:10px;color:#4a5568;font-family:Arial,sans-serif;margin-bottom:3px;">vs '+curYear+'</div>'
+          + '<img src="'+c.img+'" style="width:100%;height:112px;object-fit:fill;display:block;">'
+          + '</div>';
+      }).join('');
+      var legRow = '<div style="margin:2px 0 8px;font-family:Arial,sans-serif;">'
+        + '<span style="font-size:11px;color:#2d3748;font-weight:600;margin-right:12px;"><span style="display:inline-block;width:16px;height:2px;background:'+cfg.color+';vertical-align:middle;margin-right:4px;"></span>'+curYear+' (current)</span>'
+        + '<span style="font-size:11px;color:#2d3748;font-weight:600;"><span style="display:inline-block;width:16px;height:2px;background:#1e6fd4;vertical-align:middle;margin-right:4px;"></span>prior year</span></div>';
+      var inner = _oiPngHdr(titleTxt)
+        + '<div style="background:#f0f2f5;padding:10px 24px 12px;">'
+        + '<div style="font-size:13px;font-weight:700;color:'+cfg.color+';font-family:Arial,sans-serif;margin-bottom:2px;">'+hdrTxt+'</div>'
+        + legRow
+        + '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;">'+cellHtml+'</div>'
+        + '</div>'
+        + curTableHtml + _oiPngFtr();
+      _oiPngRender(inner, 'OI_Seasonal_' + DATA.last_date + '.png', 1500);
+    });
+    return;
+  }
+
+  /* BAND or SPAGHETTI: single multi-line card (unchanged). */
+  var card = buildSeasCard(sComm);
   lightChartImg(card.ds, card.labels, 1012, 420).then(function(img) {
     var inner = _oiPngHdr(titleTxt)
       + '<div style="background:#ffffff;padding:10px 24px 8px;">'
