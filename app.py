@@ -285,7 +285,7 @@ body.light select.oi-sel option { background:#fff; color:#1a202c; }
 
 /* Monitor grid — 12 columns (Lo merged into Hi cell) */
 .G { display:grid;
-     grid-template-columns:140px 90px 100px 84px 90px 110px 110px minmax(110px,1fr) 110px 110px 100px 120px;
+     grid-template-columns:140px 90px 100px 84px 90px 110px 110px minmax(110px,1fr) 150px 100px 120px;
      gap:0; }
 .oi-badge { display:inline-flex;align-items:center;gap:4px;border-radius:3px;padding:3px 8px;font-size:10px;font-weight:700;letter-spacing:.6px;white-space:nowrap;border-width:1px;border-style:solid; }
 .grid-head { background:var(--hdr); border-bottom:1px solid var(--acc);
@@ -354,6 +354,31 @@ body.light .spark-wrap svg rect { filter: brightness(0.6); }
 .seas-card  { background:var(--surf); border:1px solid var(--bord);
               border-radius:3px; padding:12px; }
 .scw { position:relative; width:100%; height:200px; }
+
+/* Seasonal individual-years layouts (spaghetti rail + grid small-multiples) */
+.seas-chart-row { display:grid; grid-template-columns:1fr 160px; gap:12px; align-items:stretch; }
+.seas-chart-row.no-rail { grid-template-columns:1fr; }
+.seas-rail { background:var(--hdr); border:1px solid var(--bord); border-radius:4px;
+             padding:8px 6px; font-size:11px; font-variant-numeric:tabular-nums;
+             max-height:360px; overflow:auto; }
+.seas-rail-h { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase;
+               margin-bottom:6px; padding-bottom:4px; border-bottom:1px solid var(--bord); }
+.seas-rail-row { display:flex; justify-content:space-between; padding:2px 3px; border-radius:3px; }
+.seas-rail-row .rr-yr { font-weight:700; }
+.seas-rail-row .rr-val { color:var(--dim); }
+.seas-sm-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+.seas-sm-cell { background:var(--surf2,var(--surf)); border:1px solid var(--bord); border-radius:4px;
+                padding:8px 8px 6px; position:relative; }
+.seas-sm-yr { font-size:12px; font-weight:800; letter-spacing:.5px; margin-bottom:2px; }
+.seas-sm-sub { font-size:10px; color:var(--muted); margin-bottom:4px; }
+.seas-sm-hover { position:absolute; top:4px; right:6px; font-size:11px; font-weight:700;
+                 font-variant-numeric:tabular-nums; text-align:right; line-height:1.25;
+                 pointer-events:none; opacity:0; transition:opacity .08s; }
+.seas-sm-hover.on { opacity:1; }
+.seas-sm-cw { position:relative; height:92px; }
+@media (max-width:900px){ .seas-sm-grid { grid-template-columns:repeat(3,1fr); }
+                          .seas-chart-row { grid-template-columns:1fr; }
+                          .seas-rail { display:none!important; } }
 
 /* Table */
 .tbl-outer { padding:14px 16px; }
@@ -433,11 +458,11 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
         <button class="vlm-btn act" onclick="setSeasMode('band',this)">HI / AVG / LO</button>
         <button class="vlm-btn"     onclick="setSeasMode('individual',this)">INDIVIDUAL YRS</button>
       </div>
-      <div class="vlm-ctrl-btns" style="padding:0;" id="seasViewBtns">
-        <button class="vlm-btn act" onclick="setSeasView('stacked',this)">STACKED</button>
-        <button class="vlm-btn"     onclick="setSeasView('single',this)">SINGLE</button>
+      <div class="vlm-ctrl-btns" style="padding:0;display:none;" id="seasLayoutBtns">
+        <button class="vlm-btn act" onclick="setSeasLayout('spaghetti',this)">SPAGHETTI</button>
+        <button class="vlm-btn"     onclick="setSeasLayout('grid',this)">GRID</button>
       </div>
-      <select class="oi-sel" id="seasSingleComm" style="display:none;"
+      <select class="oi-sel" id="seasSingleComm"
               onchange="onSeasCommChange()">
         <option value="CT">COTTON (CT)</option>
         <option value="SB">SUGAR (SB)</option>
@@ -453,9 +478,18 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
       <div class="seas-card">
         <div id="seasSingleHdr" style="margin-bottom:8px;"></div>
         <div class="leg-row" id="seasSingleLeg" style="margin-bottom:6px;"></div>
-        <div class="scw" style="height:360px;">
-          <canvas id="scSingle" role="img" aria-label="Seasonal OI chart">Seasonal OI.</canvas>
+        <!-- band / spaghetti share the single canvas; spaghetti adds a hover rail beside it -->
+        <div id="seasChartRow" class="seas-chart-row">
+          <div class="scw" style="height:360px;">
+            <canvas id="scSingle" role="img" aria-label="Seasonal OI chart">Seasonal OI.</canvas>
+          </div>
+          <div class="seas-rail" id="seasRail" style="display:none;">
+            <div class="seas-rail-h" id="seasRailHdr">hover a month</div>
+            <div id="seasRailBody"></div>
+          </div>
         </div>
+        <!-- grid layout: small-multiples, one panel per prior year -->
+        <div class="seas-sm-grid" id="seasSmGrid" style="display:none;"></div>
       </div>
     </div>
   </div>
@@ -519,8 +553,8 @@ let expanded  = null;
 let selKey    = null;
 let cMode     = 'seasonal';
 let seasYr    = 5;
-let seasMode  = 'band';
-let seasView  = 'stacked';
+let seasMode   = 'band';
+let seasLayout = 'spaghetti';   // 'spaghetti' | 'grid' (only applies when seasMode==='individual')
 let tblFreq   = 'daily';
 const CH = {};
 const HIST = {};
@@ -684,6 +718,11 @@ function makeSpark(sparkData, val, lo5, hi5, lo15, hi15, color) {
     + '<rect x="' + PAD + '" y="' + hi5Y + '" width="' + (W-PAD*2) + '" height="' + Math.max(1,lo5Y-hi5Y) + '" fill="rgba(74,96,128,0.38)"/>'
     + '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linejoin="round"/>'
     + '<circle cx="' + lx + '" cy="' + ly + '" r="2.5" fill="' + color + '"/>'
+    // B4: faint current-value label at the line's right endpoint, so the shape is anchored to a number.
+    // right-align near the endpoint; nudge y toward mid so it doesn't clip top/bottom.
+    + '<text x="' + (W+PAD*2-1) + '" y="' + Math.min(H, Math.max(7, ly)) + '" text-anchor="end" '
+    + 'font-size="7" font-weight="700" fill="' + color + '" opacity="0.72" '
+    + 'style="font-variant-numeric:tabular-nums;">' + (val>=1e6?(val/1e6).toFixed(2)+'M':Math.round(val/1e3)+'k') + '</text>'
     + '</svg>'
     + '</div>';
 }
@@ -720,6 +759,45 @@ function makeSignalBadge(cd) {
     + '</span></div>';
 }
 
+/* B1: per-tenor share of the commodity aggregate OI, shown on child rows in place of
+   the (previously repeated) aggregate figure. Tiny inline bar + percent. */
+function shareCell(tenorOi, aggOi, color) {
+  var oi = +tenorOi, agg = +aggOi;
+  if (!oi || !agg || agg <= 0) return '<div class="c vlm-muted">—</div>';
+  var pct = oi / agg * 100;
+  var pctTxt = pct >= 9.95 ? pct.toFixed(0) : pct.toFixed(1);
+  var w = Math.max(2, Math.min(100, pct));
+  return '<div class="c" style="flex-direction:column;align-items:flex-end;gap:1px;padding:2px 6px;" '
+    + 'title="' + f0(oi) + ' of ' + f0(agg) + ' aggregate">'
+    + '<span style="font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--dim);">' + pctTxt + '%</span>'
+    + '<span style="display:block;width:38px;height:3px;background:var(--bord);border-radius:2px;overflow:hidden;">'
+    + '<span style="display:block;height:100%;width:' + w + '%;background:' + color + ';"></span></span>'
+    + '</div>';
+}
+
+/* B2: one range bar replacing the 5yr Hi/Lo + 15yr Hi/Lo columns.
+   15yr range = faint full track; 5yr range = brighter sub-band; current OI = gold marker.
+   Exact hi/lo numbers live in the hover tooltip (delegated via .oi-range dataset). */
+function rangeBar(cur, lo5, hi5, lo15, hi15, color, comm, tkKey) {
+  var c = +cur, a5 = +lo5, b5 = +hi5, a15 = +lo15, b15 = +hi15;
+  // Fall back to the widest available window if 15yr missing
+  var lo = isFinite(a15) ? a15 : a5, hi = isFinite(b15) ? b15 : b5;
+  if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return '<div class="c vlm-muted">—</div>';
+  var span = hi - lo;
+  var pct = function(v){ return Math.max(0, Math.min(100, (v - lo) / span * 100)); };
+  var s5 = isFinite(a5) ? pct(a5) : 0, e5 = isFinite(b5) ? pct(b5) : 100;
+  var cm = pct(isFinite(c) ? c : lo);
+  var tip = 'Now: ' + f0(c) + ' | 5yr Hi: ' + f0(hi5) + ' | 5yr Lo: ' + f0(lo5)
+          + ' | 15yr Hi: ' + f0(hi15) + ' | 15yr Lo: ' + f0(lo15);
+  return '<div class="c oi-range" style="padding:2px 8px;" data-tip="' + tip + '" '
+    + 'onmouseenter="showTip(event,this.dataset.tip)" onmouseleave="hideTip()">'
+    + '<div style="position:relative;width:100%;height:14px;">'
+    + '<div style="position:absolute;top:5px;left:0;width:100%;height:4px;background:var(--bord);border-radius:2px;"></div>'
+    + '<div style="position:absolute;top:4px;left:' + s5 + '%;width:' + Math.max(1,(e5-s5)) + '%;height:6px;background:' + color + '55;border-radius:2px;"></div>'
+    + '<div style="position:absolute;top:1px;left:' + cm + '%;width:3px;height:12px;background:' + color + ';border-radius:1px;transform:translateX(-1.5px);"></div>'
+    + '</div></div>';
+}
+
 function buildMonitor() {
   const body = document.getElementById('monBody');
   body.innerHTML = '';
@@ -735,8 +813,7 @@ function buildMonitor() {
     + '<div class="gh">Aggte O.I.</div>'
     + '<div class="gh">Aggte OI Chg</div>'
     + '<div class="gh" style="text-align:left;padding-left:4px;">Aggte OI (1yr)</div>'
-    + '<div class="gh">5yr Hi / Lo</div>'
-    + '<div class="gh">15yr Hi / Lo</div>'
+    + '<div class="gh" title="Current OI position within 5yr range (bar) with 15yr range behind">OI Range 5/15yr</div>'
     + '<div class="gh">1st Notice</div>'
     + '<div class="gh" title="5yr percentile + OI trend direction">5yr %ile</div>';
   body.appendChild(hdr);
@@ -803,8 +880,7 @@ function buildMonitor() {
       + '<div class="c" style="color:' + cfg.color + ';font-weight:700;">' + f0(cd.agg_oi) + '</div>'
       + '<div class="c ' + ((cd.agg_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(cd.agg_chg) + '</div>'
       + '<div class="cl" style="padding:2px 5px;">' + makeSpark(cd.sparkline, cd.agg_oi, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color) + '</div>'
-      + '<div class="c" style="line-height:1.3;"><span style="color:var(--red);font-size:15px;font-weight:700;">' + f0(cd.hi5) + '</span><br><span style="color:var(--muted);font-size:10px;font-weight:600;">lo ' + f0(cd.lo5) + '</span></div>'
-      + '<div class="c" style="line-height:1.3;"><span style="color:var(--muted);font-size:15px;font-weight:700;">' + f0(cd.hi15) + '</span><br><span style="color:var(--muted);font-size:10px;font-weight:600;">lo ' + f0(cd.lo15) + '</span></div>'
+      + rangeBar(cd.agg_oi, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color, comm, frontTk)
       + '<div class="c fn">' + (front.first_notice || '—') + '</div>'
       + makeSignalBadge(cd);
     ar.addEventListener('click', function() {
@@ -831,11 +907,10 @@ function buildMonitor() {
           + '<div class="c oi-cell" data-comm="' + comm + '" data-tk="' + tkKey + '" data-oi="' + (td.open_int||'') + '">' + f0(td.open_int) + '</div>'
           + '<div class="c ' + ((td.oi_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(td.oi_chg) + '</div>'
           + '<div class="c" style="color:' + ((td.oi_chg||0)>=0?'var(--grn)':'var(--red)') + ';">' + fp(td.settle) + '</div>'
-          + '<div class="c vlm-muted">' + f0(cd.agg_oi) + '</div>'
+          + shareCell(td.open_int, cd.agg_oi, cfg.color)
           + '<div class="c vlm-muted">—</div>'
           + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color) + '</div>'
-          + '<div class="c" style="color:var(--red);">' + f0(td.tk_hi5||cd.hi5) + '</div>'
-          + '<div class="c vlm-muted">' + f0(td.tk_hi15||cd.hi15) + '</div>'
+          + rangeBar(td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color, comm, tkKey)
           + '<div class="c fn">' + (td.first_notice || '—') + '</div>'
           + '<div class="c"></div>';
 
@@ -999,20 +1074,21 @@ function setSeasMode(m, btn) {
   seasMode = m;
   document.querySelectorAll('#seasModeBtns .vlm-btn').forEach(function(b){ b.classList.remove('act'); });
   btn.classList.add('act');
+  // SPAGHETTI|GRID toggle only applies to individual-years mode; hide it for the band view
+  var lb = document.getElementById('seasLayoutBtns');
+  if (lb) lb.style.display = m === 'individual' ? '' : 'none';
   buildSeasonal();
 }
-function setSeasView(v, btn) {
-  seasView = v;
-  document.querySelectorAll('#seasViewBtns .vlm-btn').forEach(function(b){ b.classList.remove('act'); });
+function setSeasLayout(v, btn) {
+  seasLayout = v;
+  document.querySelectorAll('#seasLayoutBtns .vlm-btn').forEach(function(b){ b.classList.remove('act'); });
   btn.classList.add('act');
-  document.getElementById('seasSingleComm').style.display = v === 'single' ? '' : 'none';
   buildSeasonal();
 }
 function onSeasCommChange() { populateSeasContract(); buildSeasonal(); }
 
 function populateSeasContract() {
-  var refComm = seasView === 'single'
-    ? document.getElementById('seasSingleComm').value : 'CT';
+  var refComm = document.getElementById('seasSingleComm').value;
   var cd = DATA.commodities[refComm]; if (!cd) return;
   var sel  = document.getElementById('seasContract');
   var prev = sel.value;
@@ -1169,57 +1245,163 @@ function buildSeasCard(comm) {
   return {ds:ds, legH:legH, labels:labels, cfg:cfg};
 }
 
+/* nearest-month snap + crosshair shared by both individual-years layouts */
+var SEAS_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function seasNearestMonth(ch, clientX) {
+  var r = ch.canvas.getBoundingClientRect(), xIn = clientX - r.left, best = 0, bd = Infinity;
+  for (var m = 0; m < 12; m++) {
+    var px = ch.scales.x.getPixelForValue(m), dd = Math.abs(px - xIn);
+    if (dd < bd) { bd = dd; best = m; }
+  }
+  return best;
+}
+var seasCrosshair = {id:'seasCrosshair', afterDraw:function(ch){
+  var mi = ch.$hoverMonth; if (mi == null) return;
+  var x = ch.scales.x.getPixelForValue(mi), a = ch.chartArea, c = ch.ctx;
+  c.save(); c.strokeStyle = YR_COLORS[0]; c.globalAlpha = 0.5; c.lineWidth = 1;
+  c.setLineDash([3,3]); c.beginPath(); c.moveTo(x, a.top); c.lineTo(x, a.bottom); c.stroke(); c.restore();
+}};
+function seasYRange(ind) {
+  var lo = Infinity, hi = -Infinity;
+  ind.years.forEach(function(yr){ ind.byYear[yr].forEach(function(v){
+    if (v != null) { if (v < lo) lo = v; if (v > hi) hi = v; } }); });
+  if (!isFinite(lo)) return {min:undefined, max:undefined};
+  var p = (hi - lo) * 0.08; return {min:lo - p, max:hi + p};
+}
+
 async function buildSeasonal() {
-  Object.keys(CH).filter(function(k){ return k.startsWith('s-'); })
+  Object.keys(CH).filter(function(k){ return k.startsWith('s-') || k.startsWith('sg-'); })
         .forEach(function(k){ if(CH[k]) CH[k].destroy(); delete CH[k]; });
   populateSeasContract();
 
-  var commsToFetch = seasView === 'single'
-    ? [document.getElementById('seasSingleComm').value]
-    : COMMS;
-  await Promise.all(commsToFetch.map(ensureHist));
+  var comm = document.getElementById('seasSingleComm').value;
+  await ensureHist(comm);
 
   var grid         = document.getElementById('seasGrid');
   var single       = document.getElementById('seasSingle');
+  var chartRow     = document.getElementById('seasChartRow');
+  var rail         = document.getElementById('seasRail');
+  var smGrid       = document.getElementById('seasSmGrid');
   var contractSel  = document.getElementById('seasContract').value || 'Aggregate';
   var contractLbl  = contractSel === 'Aggregate' ? 'Aggregate OI' : contractSel;
-  var modeLbl      = seasMode === 'band' ? 'Hi / Avg / Lo' : 'Individual Years';
+  var layoutLbl    = seasMode === 'band' ? 'Hi / Avg / Lo'
+                     : (seasLayout === 'grid' ? 'Individual Years (grid)' : 'Individual Years (spaghetti)');
 
-  if (seasView === 'stacked') {
-    grid.style.display = ''; single.style.display = 'none'; grid.innerHTML = '';
-    COMMS.forEach(function(comm) {
-      var cd = DATA.commodities[comm]; if (!cd) return;
-      var card = buildSeasCard(comm);
-      var el   = document.createElement('div'); el.className = 'seas-card';
-      el.innerHTML =
-        '<div style="margin-bottom:6px;">'
-        + '<span style="font-size:13px;font-weight:700;letter-spacing:1px;color:'+card.cfg.color+'">'+comm+'</span>'
-        + '<span style="color:var(--dim);font-weight:600;font-size:12px;margin-left:5px;">'+card.cfg.name+'</span>'
-        + '<span style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-left:8px;">'+seasYr+'yr · '+contractLbl+' · '+modeLbl+'</span>'
-        + '</div>'
-        + '<div class="leg-row" style="margin-bottom:4px;">'+card.legH+'</div>'
-        + '<div class="scw"><canvas id="sc-'+comm+'" role="img" aria-label="Seasonal OI '+card.cfg.name+'">Seasonal OI.</canvas></div>';
-      grid.appendChild(el);
-      (function(c, ds, labels){ setTimeout(function() {
-        var cv = document.getElementById('sc-'+c); if (!cv) return;
-        CH['s-'+c] = new Chart(cv, {type:'line', data:{labels:labels, datasets:ds}, options:seasChartOpts()});
-      }, 60); })(comm, card.ds, card.labels);
-    });
+  grid.style.display = 'none'; single.style.display = '';
+  var cfg = CFG[comm];
+  document.getElementById('seasSingleHdr').innerHTML =
+    '<span style="font-size:13px;font-weight:700;letter-spacing:1px;color:'+cfg.color+'">'+comm+' '+cfg.name+'</span>'
+    + '<span style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-left:8px;">'+seasYr+'yr · '+contractLbl+' · '+layoutLbl+'</span>';
 
-  } else {
-    grid.style.display = 'none'; single.style.display = '';
-    var comm = document.getElementById('seasSingleComm').value;
-    var card = buildSeasCard(comm);
-    document.getElementById('seasSingleHdr').innerHTML =
-      '<span style="font-size:13px;font-weight:700;letter-spacing:1px;color:'+card.cfg.color+'">'+comm+' '+card.cfg.name+'</span>'
-      + '<span style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-left:8px;">'+seasYr+'yr · '+contractLbl+' · '+modeLbl+'</span>';
-    document.getElementById('seasSingleLeg').innerHTML = card.legH;
-    setTimeout(function() {
-      var cv = document.getElementById('scSingle'); if (!cv) return;
-      if (CH['s-single']) { CH['s-single'].destroy(); delete CH['s-single']; }
-      CH['s-single'] = new Chart(cv, {type:'line', data:{labels:card.labels, datasets:card.ds}, options:seasChartOpts()});
-    }, 60);
+  var isGrid = (seasMode === 'individual' && seasLayout === 'grid');
+
+  if (isGrid) {
+    // GRID small-multiples: hide chart row, show panel grid
+    chartRow.style.display = 'none';
+    smGrid.style.display = '';
+    document.getElementById('seasSingleLeg').innerHTML = '';
+    buildSeasGrid(comm);
+    return;
   }
+
+  // SPAGHETTI or BAND: single chart, rail only for spaghetti
+  chartRow.style.display = '';
+  smGrid.style.display = 'none';
+  var wantRail = (seasMode === 'individual' && seasLayout === 'spaghetti');
+  rail.style.display = wantRail ? '' : 'none';
+  chartRow.classList.toggle('no-rail', !wantRail);
+
+  var card = buildSeasCard(comm);
+  document.getElementById('seasSingleLeg').innerHTML = card.legH;
+  setTimeout(function() {
+    var cv = document.getElementById('scSingle'); if (!cv) return;
+    if (CH['s-single']) { CH['s-single'].destroy(); delete CH['s-single']; }
+    CH['s-single'] = new Chart(cv, {type:'line', data:{labels:card.labels, datasets:card.ds},
+                                    options:seasChartOpts(), plugins: wantRail ? [seasCrosshair] : []});
+    if (wantRail) attachSeasRail(CH['s-single'], comm);
+  }, 60);
+}
+
+/* SPAGHETTI hover rail: sweep the chart, read every year's OI at the hovered month */
+function attachSeasRail(ch, comm) {
+  var ind = computeIndividual(getSeasHist(comm), new Date(DATA.last_date).getFullYear());
+  var body = document.getElementById('seasRailBody'), hdr = document.getElementById('seasRailHdr');
+  var curYear = new Date(DATA.last_date).getFullYear(), cfg = CFG[comm];
+  body.innerHTML = ind.years.map(function(yr, i){
+    var c = yr===curYear ? cfg.color : YR_COLORS[i % YR_COLORS.length];
+    return '<div class="seas-rail-row"><span class="rr-yr" style="color:'+c+';">'+yr
+      + '</span><span class="rr-val" id="srv-'+yr+'">—</span></div>';
+  }).join('');
+  ch.canvas.onmousemove = function(e){
+    var mi = seasNearestMonth(ch, e.clientX);
+    ch.$hoverMonth = mi; ch.draw();
+    hdr.textContent = SEAS_MONTHS[mi] + ' · OI by year';
+    ind.years.forEach(function(yr){
+      var el = document.getElementById('srv-'+yr); if (!el) return;
+      var v = ind.byYear[yr][mi];
+      el.textContent = v==null ? '—' : (v>=1e6?(v/1e6).toFixed(2)+'M':Math.round(v/1e3)+'k');
+    });
+  };
+  ch.canvas.onmouseleave = function(){
+    ch.$hoverMonth = null; ch.draw();
+    hdr.textContent = 'hover a month';
+    ind.years.forEach(function(yr){ var el = document.getElementById('srv-'+yr); if (el) el.textContent = '—'; });
+  };
+}
+
+/* GRID small-multiples: one panel per prior year, gold current-year ghost in each, synced hover */
+function buildSeasGrid(comm) {
+  var ind = computeIndividual(getSeasHist(comm), new Date(DATA.last_date).getFullYear());
+  var curYear = new Date(DATA.last_date).getFullYear(), cfg = CFG[comm], C = cc();
+  var yr = seasYRange(ind), curArr = ind.byYear[curYear] || Array(12).fill(null);
+  var priors = ind.years.filter(function(y){ return y !== curYear; });
+  var g = document.getElementById('seasSmGrid'); g.innerHTML = '';
+  var fmt = function(v){ return v==null ? '—' : (v>=1e6?(v/1e6).toFixed(2)+'M':Math.round(v/1e3)+'k'); };
+
+  priors.forEach(function(y){
+    var cell = document.createElement('div'); cell.className = 'seas-sm-cell';
+    cell.innerHTML = '<div class="seas-sm-yr" style="color:'+cfg.color+';">'+y+'</div>'
+      + '<div class="seas-sm-sub">vs '+curYear+'</div><div class="seas-sm-hover" id="sgh-'+y+'"></div>'
+      + '<div class="seas-sm-cw"><canvas id="sg-cv-'+y+'"></canvas></div>';
+    g.appendChild(cell);
+  });
+  var smOpts = {
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{legend:{display:false}, tooltip:{enabled:false}},
+    scales:{x:{grid:{color:C.grid, drawTicks:false}, ticks:{color:C.tick, font:{size:7}, maxTicksLimit:6, maxRotation:0}},
+            y:{min:yr.min, max:yr.max, grid:{color:C.grid, drawTicks:false},
+               ticks:{color:C.tick, font:{size:7}, maxTicksLimit:3,
+                      callback:function(v){ return v>=1e6?(v/1e6).toFixed(1)+'M':Math.round(v/1e3)+'k'; }}}}
+  };
+  priors.forEach(function(y){
+    var cv = document.getElementById('sg-cv-'+y); if (!cv) return;
+    var ch = new Chart(cv, {type:'line', data:{labels:SEAS_MONTHS, datasets:[
+      {data:curArr, borderColor:cfg.color, borderWidth:2, pointRadius:0, tension:0, spanGaps:false, order:0},
+      {data:ind.byYear[y], borderColor:'#5ba3e8', borderWidth:1.6, pointRadius:0, tension:0, spanGaps:false, order:1}]},
+      options:smOpts, plugins:[seasCrosshair]});
+    ch.$year = y; CH['sg-'+y] = ch;
+  });
+  // synced hover: hovering any panel lights the same month in every panel + corner readouts
+  priors.forEach(function(y){
+    var ch = CH['sg-'+y]; if (!ch) return;
+    ch.canvas.onmousemove = function(e){
+      var mi = seasNearestMonth(ch, e.clientX);
+      priors.forEach(function(yy){
+        var c2 = CH['sg-'+yy]; if (!c2) return;
+        c2.$hoverMonth = mi; c2.draw();
+        var hv = document.getElementById('sgh-'+yy);
+        hv.innerHTML = '<div style="color:'+cfg.color+';">'+fmt(curArr[mi])+'</div>'
+          + '<div style="color:#5ba3e8;">'+fmt(ind.byYear[yy][mi])+'</div>';
+        hv.classList.add('on');
+      });
+    };
+    ch.canvas.onmouseleave = function(){
+      priors.forEach(function(yy){
+        var c2 = CH['sg-'+yy]; if (c2){ c2.$hoverMonth = null; c2.draw(); }
+        var hv = document.getElementById('sgh-'+yy); if (hv) hv.classList.remove('on');
+      });
+    };
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1671,7 +1853,7 @@ function exportSeasPng() {
         .forEach(function(r){ var m=new Date(r.date).getMonth(); if(cur[m]===null||r.open_int>cur[m])cur[m]=r.open_int; });
     return cur;
   }
-  var commsToShow = seasView==='single' ? [document.getElementById('seasSingleComm').value] : COMMS.filter(function(c){ return DATA.commodities[c]; });
+  var commsToShow = [document.getElementById('seasSingleComm').value];  // always single-commodity now
   var hdrRow = '<tr style="background:#e8edf2;">'
     + '<td style="padding:4px 10px;font-size:11px;color:#4a5568;font-family:Arial,sans-serif;border-right:1px solid #c8d4e0;font-weight:700;">' + curYear + '</td>'
     + months.map(function(mo){ return '<td style="padding:4px 8px;font-size:11px;color:#4a5568;text-align:right;font-family:Arial,sans-serif;border-right:1px solid #c8d4e0;">' + mo + '</td>'; }).join('')
@@ -1740,42 +1922,24 @@ function exportSeasPng() {
     }).join('');
   }
 
-  if (seasView === 'single') {
-    var sComm = document.getElementById('seasSingleComm').value;
-    var card  = buildSeasCard(sComm);
-    var hdrEl = document.getElementById('seasSingleHdr');
-    var hdrTxt = hdrEl ? hdrEl.textContent : sComm + ' ' + CFG[sComm].name;
-    lightChartImg(card.ds, card.labels, 1012, 420).then(function(img) {
-      var inner = _oiPngHdr(titleTxt)
-        + '<div style="background:#ffffff;padding:10px 24px 8px;">'
-        + '<div style="font-size:13px;font-weight:700;color:'+card.cfg.color+';font-family:Arial,sans-serif;margin-bottom:4px;">'+hdrTxt+'</div>'
-        + '<div style="margin-bottom:6px;">'+buildLegLight(card)+'</div>'
-        + '<img src="'+img+'" style="width:100%;height:420px;object-fit:fill;display:block;border:1px solid #e0e8f0;">'
-        + '</div>'
-        + curTableHtml + _oiPngFtr();
-      _oiPngRender(inner, 'OI_Seasonal_Single_' + DATA.last_date + '.png', 1060);
-    });
-  } else {
-    var tasks = COMMS.filter(function(c){ return DATA.commodities[c]; }).map(function(comm) {
-      var card = buildSeasCard(comm);
-      return lightChartImg(card.ds, card.labels, 490, 220).then(function(img) {
-        return { comm:comm, img:img, cfg:CFG[comm], card:card };
-      });
-    });
-    Promise.all(tasks).then(function(results) {
-      var gridHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 24px;background:#f0f2f5;">';
-      results.forEach(function(r) {
-        gridHtml += '<div style="background:#ffffff;border:1px solid #c8d4e0;border-radius:3px;padding:10px;">'
-          + '<div style="font-size:13px;font-weight:700;color:'+r.cfg.color+';font-family:Arial,sans-serif;margin-bottom:2px;">'+r.comm+' '+r.cfg.name+'</div>'
-          + '<div style="margin-bottom:4px;">'+buildLegLight(r.card)+'</div>'
-          + '<img src="'+r.img+'" style="width:100%;height:200px;object-fit:fill;display:block;border:1px solid #e0e8f0;">'
-          + '</div>';
-      });
-      gridHtml += '</div>';
-      var inner = _oiPngHdr(titleTxt) + gridHtml + curTableHtml + _oiPngFtr();
-      _oiPngRender(inner, 'OI_Seasonal_' + DATA.last_date + '.png', 1060);
-    });
-  }
+  /* Always single-commodity now (STACKED view removed). The PNG mirrors the on-screen
+     chart: band OR the individual-years multi-line (spaghetti content). GRID small-
+     multiples still export as the multi-line individual chart here — a static grid PNG
+     is a later enhancement (spec A5). */
+  var sComm = document.getElementById('seasSingleComm').value;
+  var card  = buildSeasCard(sComm);
+  var hdrEl = document.getElementById('seasSingleHdr');
+  var hdrTxt = hdrEl ? hdrEl.textContent : sComm + ' ' + CFG[sComm].name;
+  lightChartImg(card.ds, card.labels, 1012, 420).then(function(img) {
+    var inner = _oiPngHdr(titleTxt)
+      + '<div style="background:#ffffff;padding:10px 24px 8px;">'
+      + '<div style="font-size:13px;font-weight:700;color:'+card.cfg.color+';font-family:Arial,sans-serif;margin-bottom:4px;">'+hdrTxt+'</div>'
+      + '<div style="margin-bottom:6px;">'+buildLegLight(card)+'</div>'
+      + '<img src="'+img+'" style="width:100%;height:420px;object-fit:fill;display:block;border:1px solid #e0e8f0;">'
+      + '</div>'
+      + curTableHtml + _oiPngFtr();
+    _oiPngRender(inner, 'OI_Seasonal_' + DATA.last_date + '.png', 1060);
+  });
 }
 
 function exportTablePng() {
