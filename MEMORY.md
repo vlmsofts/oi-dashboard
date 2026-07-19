@@ -1,5 +1,24 @@
 # Open interest dashboard — MEMORY
 
+## 2026-07-19 — Seasonal PNG mirrors on-screen layout (merge 3dc3aca)
+
+Lou reported: exporting the Seasonal PNG while GRID was selected produced the spaghetti
+chart, not the grid. Root cause = my own deferral: `exportSeasPng` always rendered the
+single multi-line card (I'd left "static grid PNG is a later enhancement" in a comment).
+Lou's rule: **whatever layout is chosen on the site IS the PNG default.**
+
+**Fix:** `exportSeasPng` now routes on `seasLayout`/`seasMode` (the same on-screen state):
+- GRID → renders one light-mode small-multiple panel per prior year (gold current-year +
+  blue prior-year line, shared y-scale via `seasYRange`) laid out 5-up — mirrors
+  `buildSeasGrid()`. Title label → "INDIVIDUAL YRS · GRID". Wider canvas (1500px).
+- BAND / SPAGHETTI → unchanged single-card render.
+- `lightChartImg()` gained optional `{yMin,yMax,fontSize,maxYTicks,maxXTicks}` so grid
+  panels share the y-scale; existing single-card calls pass no opt (defaults = old behavior).
+
+**Audit (Sonnet) clean** on fidelity/back-compat/scope/promise/no-regression. Caught + fixed:
+prior-year line was #1e6fd4 in PNG vs screen's #5ba3e8 → matched for true parity; removed
+dead `fmtSm`. Both branches write `OI_Seasonal_<date>.png`.
+
 ## 2026-07-19 — Monitor B3 OI-vs-price conviction tag (merge 514b16a)
 
 Shipped the previously-deferred B3. Lou challenged the deferral ("don't we have this data?")
