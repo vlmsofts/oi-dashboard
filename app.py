@@ -778,7 +778,7 @@ function shareCell(tenorOi, aggOi, color) {
 /* B2: one range bar replacing the 5yr Hi/Lo + 15yr Hi/Lo columns.
    15yr range = faint full track; 5yr range = brighter sub-band; current OI = gold marker.
    Exact hi/lo numbers live in the hover tooltip (delegated via .oi-range dataset). */
-function rangeBar(cur, lo5, hi5, lo15, hi15, color, comm, tkKey) {
+function rangeBar(cur, lo5, hi5, lo15, hi15, color) {
   var c = +cur, a5 = +lo5, b5 = +hi5, a15 = +lo15, b15 = +hi15;
   // Fall back to the widest available window if 15yr missing
   var lo = isFinite(a15) ? a15 : a5, hi = isFinite(b15) ? b15 : b5;
@@ -880,7 +880,7 @@ function buildMonitor() {
       + '<div class="c" style="color:' + cfg.color + ';font-weight:700;">' + f0(cd.agg_oi) + '</div>'
       + '<div class="c ' + ((cd.agg_chg||0)>=0?'vlm-pos':'vlm-neg') + '">' + fc(cd.agg_chg) + '</div>'
       + '<div class="cl" style="padding:2px 5px;">' + makeSpark(cd.sparkline, cd.agg_oi, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color) + '</div>'
-      + rangeBar(cd.agg_oi, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color, comm, frontTk)
+      + rangeBar(cd.agg_oi, cd.lo5, cd.hi5, cd.lo15, cd.hi15, cfg.color)
       + '<div class="c fn">' + (front.first_notice || '—') + '</div>'
       + makeSignalBadge(cd);
     ar.addEventListener('click', function() {
@@ -910,7 +910,7 @@ function buildMonitor() {
           + shareCell(td.open_int, cd.agg_oi, cfg.color)
           + '<div class="c vlm-muted">—</div>'
           + '<div class="cl" style="padding:2px 5px;">' + makeSpark(null, td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color) + '</div>'
-          + rangeBar(td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color, comm, tkKey)
+          + rangeBar(td.open_int, td.tk_lo5||cd.lo5, td.tk_hi5||cd.hi5, td.tk_lo15||cd.lo15, td.tk_hi15||cd.hi15, cfg.color)
           + '<div class="c fn">' + (td.first_notice || '—') + '</div>'
           + '<div class="c"></div>';
 
