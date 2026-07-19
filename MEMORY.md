@@ -1,5 +1,101 @@
 # Open interest dashboard — MEMORY
 
+## 2026-07-19 — Monitor B3 OI-vs-price conviction tag (merge 514b16a)
+
+Shipped the previously-deferred B3. Lou challenged the deferral ("don't we have this data?")
+and was RIGHT — the settle day-change was derivable from data ALREADY loaded, not a producer
+change as I first claimed. Corrected: `load_data` builds a per-ticker `history` list of
+{date,open_int,oi_chg,settle}; the prior settle is right there. But two things had hidden it
+from the row: the main payload drops `history` per ticker, and `/api/history` only carries
+{date,open_int} (no settle). Fix = compute it server-side where history is already in hand.
+
+**What:** `load_data` now computes `settle_chg` per ticker = settle[-1]-settle[-2] over the two
+latest PRICED history rows (None if <2 priced sessions). Client `convictionTag(oiChg,settleChg)`
+renders a small tag INSIDE the existing OI CHG cell (grid stays 11 cols): NL new longs (OI↑px↑,
+grn) / NS new shorts (OI↑px↓, red) / SC short covering (OI↓px↑, grn) / LL long liquidation
+(OI↓px↓, red), with a descriptive tooltip. Empty when oiChg or settleChg is 0/null/undefined/NaN.
+
+**Additive-only:** `settle_chg` is a new ticker key; the payload whitelists-by-exclusion (drops
+only `history`), so new keys pass through — no route/shape change. Sonnet audit clean 6/6
+(quadrants, guards airtight incl. +null=0 caught by ===0, grid=11, blast-radius additive,
+tooltip no-conflict, OI CHG numeric+color unchanged). Verified real CTDEC1 (OI -2115, px -2.25)
+reads LL.
+
+**Lesson:** "the field isn't on the row" ≠ "the data doesn't exist." Check whether it's
+derivable from what load_data already holds before calling something a producer/CSV change.
+
+## 2026-07-19 — Seasonal SPAGHETTI|GRID redesign + Monitor B1/B2/B4 (merge ffcae02)
+
+**What (all in app.py's INDEX_HTML template — display-only, zero data-layer change):**
+Seasonal tab: dropped the STACKED all-commodities view + the `seasView` var entirely; the
+tab is now ALWAYS single-commodity via an always-on dropdown. Added a `SPAGHETTI|GRID` layout
+toggle (`seasLayout` state, `setSeasLayout`), shown only in INDIVIDUAL-YEARS mode (hidden for
+HI/AVG/LO band). SPAGHETTI = multi-line chart + gold crosshair (`seasCrosshair` plugin) + a
+hover "rail" (`attachSeasRail`) reading every year's OI at the hovered month. GRID =
+small-multiples (`buildSeasGrid`), one panel per prior year, shared y-scale, synced hover.
+`buildSeasonal` rewritten to a 3-way route (band card / spaghetti / grid). Band mode +
+`computeIndividual`/`getSeasHist`/`computeBand`/`buildSeasCard` UNCHANGED. PNG export
+collapsed to single-commodity; filename `OI_Seasonal_Single_*` → unified `OI_Seasonal_*`.
+
+Monitor tab: **B1** child (expanded) rows now show per-tenor share-of-aggregate
+(`shareCell` = open_int/agg_oi %, tiny inline bar) instead of the repeated aggregate figure;
+parent row keeps the real aggregate. **B2** merged the 5yr Hi/Lo + 15yr Hi/Lo columns into
+ONE range bar (`rangeBar`: 15yr faint track, 5yr band, gold current marker); exact numbers to
+hover tooltip. `.G` grid 12→11 cols; header/parent/child rows all realigned to 11 cells.
+**B4** faint current-value label at the 1yr sparkline right endpoint.
+
+**Deferred (with reasons):**
+- **B3** (OI×price conviction: new-longs/new-shorts/short-cover/long-liq glyph) — BLOCKED:
+  needs a per-row settle DAY-CHANGE sign, which does not exist in the Monitor row data today
+  (rows carry settle LEVEL + oi_chg only). That's a producer/data-layer change → out of scope.
+- **A5** (Playwright PNG port) — de-scoped: the spec assumed the export screenshots the DARK
+  DOM, but `_oiPngRender` already injects a full LIGHT-palette token set into an offscreen
+  clone, so palette is already correct. The port is fidelity-only (scale:2 html2canvas vs 3×),
+  a later nice-to-have, not required.
+- Spec's B4 `tension:0` was a non-issue: the sparkline is hand-drawn SVG polyline, not Chart.js.
+
+**Process:** built on branch `feat/seasonal-redesign-monitor-refine`, smoke-tested (app boots,
+`/`→200, APIs 200, JS brackets balanced), then 3-agent Sonnet audit — correctness (grid cells
+all 11, division/NaN guards solid, chart lifecycle clean, no off-by-one hover), no-regression
+(all 7 categories clean), blast-radius (ZERO — `build_whatsapp_oi.py` reads CSVs + renders its
+OWN html, never scrapes this dashboard; no API/CSV/route touched). Merged to main ffcae02.
+Stale doc `options_dashboard_DOCS/VLM_OI_Dashboard_Handoff_v2.md` still lists the old columns.
+
+## 2026-07-18 — oi_data.csv historical field backfill (OHLC + FND/LTD), commit b008ed3
+
+**What:** filled previously-EMPTY `high`/`low`/`open` + `first_notice`/`last_trade` across
+the full 2008→2026 history of `data/oi_data.csv` (5 columns, 752,480 cells). FILL-EMPTY-ONLY:
+0 existing cells overwritten, row count + keys identical (178,817 rows). volume/open_int
+were already as full as BBG serves — 0 filled. Builder: `VLM Data/backfill_oi_fields.py`.
+Backup: `data/oi_data.backup_pre_fieldfill_2026-07-18.csv` (gitignored `*.backup_*`).
+
+**FND/LTD method (no formula):** BBG serves `FUT_CUR_GEN_TICKER` as a HISTORICAL per-date
+field on the generic — CTMAR1 on 2008-01-02 → 'CTH08'. So resolve the dated contract the
+generic pointed at PER DATE, then pull that contract's real `FUT_NOTICE_FIRST`/
+`LAST_TRADEABLE_DT`. Exchange-authoritative for all 4 commodities. A cotton FDD-5bd/LDD-10bd
+formula is 15/15 on FND but only 13/15 on LTD (fails March) and is flat WRONG for softs
+(KC LTD ~1mo after FND; SB LTD BEFORE FND, cash-settle) — so formula is diagnostic-only,
+never writes. Weekday-holiday rows (BBG republishes prior OI with NO pointer) inherit the
+prior trading session's dated contract, guarded to ≤4 calendar days (`prior_dated`,
+`MAX_INHERIT_GAP_DAYS`). Real max gap = 3d, 0 roll crossings, guard never fired.
+
+**Verified (3-agent Sonnet audit + Haiku scan):** CT FND/LTD matches ICE ProductSpec ref
+CSV exactly; 0 high<low; softs LTD<FND correct; corrected CSV byte-identical across two
+runs (md5 df073d1b).
+
+**BLAST RADIUS — Lou-approved as a CORRECTION, not additive:** `CTA MONITOR/cta_scraper.py`
+`build_front_month` used `infer_expiry()` ("15th of month") when FND/LTD were blank →
+rolled LATE, holding contracts INTO their notice period. Real dates fix this. Front-month
+selection changed on CT 289 / SB 75 / KC 596 / CC 741 days (2-16%) — all cases where the
+OLD pick was wrong (held a contract past FND). Proven on samples (2008-04-14 CT: old held
+CTMAY1 at FND-10d, new correctly rolls to CTJUL1). CTA `*_prices.csv` regenerated locally
+(they are gitignored build artifacts — `data/*_prices.csv` — NOT committed). Other CTA
+consumers (app.py/snapshot.py/build_whatsapp_oi.py sort by `first_notice or '9999'`) only
+ever render TODAY's row, already populated by the daily job → cosmetically unaffected.
+
+**Go-forward:** the daily job (`vlm_master_fetch.py`) already writes these 5 fields for new
+rows, so this backfill is a one-off closing the historical gap; no producer change needed.
+
 ## 🔴 ICE EXPIRY AUTHORITY (Lou 2026-07-16) — the overarching truth for ALL expiry
 ICE's own /expiry pages are the UNDISPUTED authority for every product's expiry/FTD/LTD.
 Any stored date differing from ICE = OUR data is wrong. The 8 sources:
