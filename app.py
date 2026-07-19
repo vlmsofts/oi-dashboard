@@ -1971,11 +1971,10 @@ function exportSeasPng() {
     var yr      = seasYRange(ind);
     var curArr  = ind.byYear[curYear] || Array(12).fill(null);
     var priors  = ind.years.filter(function(y){ return y !== curYear; });
-    var fmtSm   = function(v){ return v==null ? '—' : (v>=1e6?(v/1e6).toFixed(2)+'M':Math.round(v/1e3)+'k'); };
     Promise.all(priors.map(function(y){
       var ds = [
         {data:curArr,         borderColor:cfg.color, borderWidth:2,   pointRadius:0, tension:0, spanGaps:false, order:0},
-        {data:ind.byYear[y],  borderColor:'#1e6fd4', borderWidth:1.6, pointRadius:0, tension:0, spanGaps:false, order:1},
+        {data:ind.byYear[y],  borderColor:'#5ba3e8', borderWidth:1.6, pointRadius:0, tension:0, spanGaps:false, order:1},
       ];
       return lightChartImg(ds, months, 300, 150, {yMin:yr.min, yMax:yr.max, fontSize:8, maxYTicks:3, maxXTicks:6})
         .then(function(img){ return {year:y, img:img}; });
@@ -1989,7 +1988,7 @@ function exportSeasPng() {
       }).join('');
       var legRow = '<div style="margin:2px 0 8px;font-family:Arial,sans-serif;">'
         + '<span style="font-size:11px;color:#2d3748;font-weight:600;margin-right:12px;"><span style="display:inline-block;width:16px;height:2px;background:'+cfg.color+';vertical-align:middle;margin-right:4px;"></span>'+curYear+' (current)</span>'
-        + '<span style="font-size:11px;color:#2d3748;font-weight:600;"><span style="display:inline-block;width:16px;height:2px;background:#1e6fd4;vertical-align:middle;margin-right:4px;"></span>prior year</span></div>';
+        + '<span style="font-size:11px;color:#2d3748;font-weight:600;"><span style="display:inline-block;width:16px;height:2px;background:#5ba3e8;vertical-align:middle;margin-right:4px;"></span>prior year</span></div>';
       var inner = _oiPngHdr(titleTxt)
         + '<div style="background:#f0f2f5;padding:10px 24px 12px;">'
         + '<div style="font-size:13px;font-weight:700;color:'+cfg.color+';font-family:Arial,sans-serif;margin-bottom:2px;">'+hdrTxt+'</div>'
