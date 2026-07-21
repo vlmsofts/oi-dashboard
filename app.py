@@ -1750,6 +1750,9 @@ function _renderOptContent(od) {
   allStrikes.sort(function(a,b){return a-b;});
 
   var SEL = 'background:'+DARK+';border:1px solid var(--bord);color:'+WHITE+';padding:4px 8px;font-size:12px;border-radius:3px;';
+  // GO button uses a literal navy fill, not var(--blue): --blue flips brightness between
+  // themes (#1e40af light / #93c5fd dark), so white-on-var(--blue) is illegible in dark.
+  // Same treatment as .vlm-btn.act.
   var histHtml = '<div style="background:'+ALT+';border:1px solid var(--bord);border-radius:4px;'+
                  'padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'+
                  '<span style="font-size:11px;font-weight:700;letter-spacing:1px;color:'+DIM+';">HISTORY SEARCH</span>'+
@@ -1769,8 +1772,8 @@ function _renderOptContent(od) {
                  '<input id="optHFrom" type="date" style="'+SEL+'">'+
                  '<span style="font-size:11px;color:'+DIM+';">TO</span>'+
                  '<input id="optHTo" type="date" style="'+SEL+'">'+
-                 '<button onclick="runOptHistory()" style="background:var(--blue);border:1px solid var(--blue);color:#fff;'+
-                 'color:'+WHITE+';padding:4px 14px;font-size:12px;border-radius:3px;cursor:pointer;font-weight:700;">GO</button>'+
+                 '<button onclick="runOptHistory()" style="background:#1e40af;border:1px solid #1e40af;color:#fff;'+
+                 'padding:4px 14px;font-size:12px;border-radius:3px;cursor:pointer;font-weight:700;">GO</button>'+
                  '<button onclick="clearOptHistory()" '+
                  'style="background:transparent;border:1px solid var(--bord);color:'+DIM+';'+
                  'padding:4px 10px;font-size:12px;border-radius:3px;cursor:pointer;">CLEAR</button>'+
