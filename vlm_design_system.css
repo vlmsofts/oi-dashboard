@@ -12,58 +12,61 @@
 /* ── Reset ───────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ── CSS Color Tokens — Dark Mode (default) ──────────────────────────────── */
+/* ── CSS Color Tokens — Light Mode (default) ─────────────────────────────── */
 :root {
 
   /* Backgrounds */
-  --bg:       #080b0f;   /* page background */
-  --surf:     #0f1520;   /* card / panel surface */
-  --surf2:    #161e2a;   /* inset surface (controls, sparkcard) */
-  --hdr:      #0a1118;   /* topbar / table header rows */
+  --bg:       #f0f2f5;   /* page background */
+  --surf:     #ffffff;   /* card / panel surface */
+  --surf2:    #f4f6f8;   /* inset surface (controls, sparkcard) */
+  --hdr:      #e8edf2;   /* topbar / table header rows */
 
   /* Borders */
-  --bord:     #2a3548;   /* standard border */
-  --bord2:    #334155;   /* stronger border (section dividers) */
+  --bord:     #c8d4e0;   /* standard border */
+  --bord2:    #b0bfd0;   /* stronger border (section dividers) */
 
   /* Text */
-  --text:     #f8fafc;   /* primary text — positions, numbers */
-  --dim:      #cbd5e1;   /* secondary text — labels, section headers */
-  --muted:    #94a3b8;   /* tertiary text — traders, metadata */
+  --text:     #1a202c;   /* primary text — positions, numbers */
+  --dim:      #2d3748;   /* secondary text — labels, section headers */
+  --muted:    #4a5568;   /* tertiary text — traders, metadata */
 
   /* Semantic colors */
-  --grn:      #22c55e;   /* long / positive / bullish */
-  --red:      #ef4444;   /* short / negative / bearish */
-  --spread:   #c084fc;   /* spreading positions */
-  --blue:     #93c5fd;   /* category headers */
-  --gold:     #E8C547;   /* accent / Cotton commodity color */
+  --grn:      #15803d;   /* long / positive / bullish */
+  --red:      #b91c1c;   /* short / negative / bearish */
+  --spread:   #7e22ce;   /* spreading positions */
+  --blue:     #1e40af;   /* category headers */
+  /* DENSE-UI gold (DECISIONS §1): #c9a227 is only 2.42:1 on white and washes
+     out as 13px emphasis in a packed grid. #8a6d0f is 4.91:1 (small-text AA). */
+  --gold:     #8a6d0f;   /* accent / Cotton commodity color */
 
   /* Commodity colors */
-  --cotton:   #E8C547;
+  --cotton:   #8a6d0f;
   --sugar:    #E07B54;
   --coffee:   #C8956D;
   --cocoa:    #A07855;
 
   /* Accent (active state) */
-  --acc:      #E8C547;
+  --acc:      #8a6d0f;
 }
 
-/* ── Light Mode overrides ─────────────────────────────────────────────────── */
-body.light {
-  --bg:       #f0f2f5;
-  --surf:     #ffffff;
-  --surf2:    #f4f6f8;
-  --hdr:      #e8edf2;
-  --bord:     #c8d4e0;
-  --bord2:    #b0bfd0;
-  --text:     #1a202c;
-  --dim:      #2d3748;
-  --muted:    #4a5568;
-  --grn:      #15803d;
-  --red:      #b91c1c;
-  --spread:   #7e22ce;
-  --blue:     #1e40af;
-  --gold:     #92680a;
-  --acc:      #92680a;
+/* ── Dark Mode overrides ──────────────────────────────────────────────────── */
+body.dark {
+  --bg:       #080b0f;
+  --surf:     #0f1520;
+  --surf2:    #161e2a;
+  --hdr:      #0a1118;
+  --bord:     #2a3548;
+  --bord2:    #334155;
+  --text:     #f8fafc;
+  --dim:      #cbd5e1;
+  --muted:    #94a3b8;
+  --grn:      #22c55e;
+  --red:      #ef4444;
+  --spread:   #c084fc;
+  --blue:     #93c5fd;
+  --gold:     #E8C547;
+  --acc:      #E8C547;
+  --cotton:   #E8C547;
 }
 
 /* ── Plotly/Dash P{} palette reference (Python dict — copy into crop_app.py)
@@ -87,7 +90,7 @@ body.light {
 body {
   background:  var(--bg);
   color:       var(--text);
-  font-family: 'Courier New', Courier, monospace;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size:   13px;
   min-height:  100vh;
 }
@@ -261,8 +264,10 @@ body {
   transition:     .15s;
   white-space:    nowrap;
 }
-.vlm-btn:hover      { color: var(--text); border-color: #4a6080; }
-.vlm-btn.act        { color: var(--text); background: #1e2a3f; border-color: #4a6080; }
+.vlm-btn:hover      { color: var(--text); border-color: var(--bord2); }
+.vlm-btn.act        { color: var(--text); background: var(--surf2); border-color: var(--bord2); }
+body.dark .vlm-btn:hover { border-color: #4a6080; }
+body.dark .vlm-btn.act   { background: #1e2a3f; border-color: #4a6080; }
 .vlm-btn.disabled   { opacity: .28; pointer-events: none; }
 
 /* ── COT position table ──────────────────────────────────────────────────── */
@@ -346,20 +351,20 @@ body {
 .vlm-muted{ color: var(--muted); }
 
 /* ── Light mode table overrides ──────────────────────────────────────────── */
-body.light .vlm-tbl td         { color: #1a202c; border-bottom: 1px solid #d1dce8; }
-body.light .vlm-tbl th         { background: #d4dde8; color: #2d3748; border-bottom: 1px solid #b0bfd0; }
-body.light .vlm-r-sec td       { background: #c8d4e0; color: #2d3748; }
-body.light .vlm-r-cat td.lc    { color: #1e40af; }
-body.light .vlm-r-long  td.lc  { color: #15803d; }
-body.light .vlm-r-short td.lc  { color: #b91c1c; }
-body.light .vlm-r-spread td.lc { color: #7e22ce; }
-body.light .vlm-r-net   td.lc  { color: #1a202c; }
-body.light .vlm-r-long          { background: rgba(21,128,61,.06); }
-body.light .vlm-r-short         { background: rgba(185,28,28,.06); }
-body.light .vlm-r-spread        { background: rgba(126,34,206,.06); }
-body.light .vlm-r-oi            { background: #d4dde8; border-top: 2px solid #b0bfd0; }
-body.light .vlm-tbl-lbl         { background: #d4dde8; color: #2d3748; }
-body.light .vlm-tbl-wrap        { background: #ffffff; }
+/* §0.5: th / -sec / -oi / -lbl / -wrap are token-driven (var(--hdr)/var(--surf))
+   and resolve per theme on their own — do NOT hardcode light values into them,
+   that breaks dark. Only genuinely hardcoded values get explicit counterparts. */
+body.dark .vlm-tbl td          { border-bottom: 1px solid #1e2a3a; }
+body.dark .vlm-r-long          { background: rgba(34,197,94,.03); }
+body.dark .vlm-r-short         { background: rgba(239,68,68,.03); }
+body.dark .vlm-r-spread        { background: rgba(192,132,252,.03); }
+
+/* Light-mode counterparts. Row separator is stronger than the old #d1dce8
+   (1.39:1): #b0bfd0 gives 1.87:1 so ~20-column row tracking holds on white. */
+.vlm-tbl td                    { border-bottom: 1px solid #b0bfd0; }
+.vlm-r-long                    { background: rgba(21,128,61,.06); }
+.vlm-r-short                   { background: rgba(185,28,28,.06); }
+.vlm-r-spread                  { background: rgba(126,34,206,.06); }
 
 /* ── Sparkline cards ─────────────────────────────────────────────────────── */
 .vlm-sparkcard {
