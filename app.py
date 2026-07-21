@@ -247,12 +247,21 @@ HTML = """<!DOCTYPE html>
 /* OI dashboard overrides */
 body { color: var(--text); font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important; }
 * { font-family: inherit; }
-.vlm-logo     { color: var(--text) !important; }
-.vlm-logo-sub { color: var(--dim)  !important; letter-spacing:2px; }
-.vlm-asof     { color: var(--dim)  !important; }
-.vlm-topbar-meta { color: var(--dim) !important; }
-.vlm-theme-btn { color: var(--dim) !important; font-weight:600; }
-.vlm-theme-btn:hover { color: var(--text) !important; border-color:var(--text) !important; }
+/* Header bar — DECISIONS §2b: the WASDE dark gradient bar. Stays dark in BOTH
+   themes (only the body flips); gold on it is the dark-context #E8C547.
+   Overridden here, not in the shared CSS: .vlm-topbar reads var(--hdr), which
+   8 other rules (table headers, section bars) also use -- retuning the token
+   would recolour every one of them, and the shared file feeds Cert Stocks and
+   Cotton Basis too. */
+.vlm-topbar { background: linear-gradient(135deg,#0c0e10 0%,#16191d 50%,#0e1114 100%) !important;
+              border-bottom: 1px solid #2a3548 !important; }
+.vlm-logo     { color: #E8C547 !important; }
+.vlm-logo-sub { color: #cbd5e1 !important; letter-spacing:2px; }
+.vlm-asof     { color: #cbd5e1 !important; }
+.vlm-topbar-meta { color: #cbd5e1 !important; }
+.vlm-topbar a { color: #E8C547 !important; }
+.vlm-theme-btn { color: #cbd5e1 !important; font-weight:600; border-color:#4a6080 !important; }
+.vlm-theme-btn:hover { color: #fff !important; border-color:#E8C547 !important; }
 
 /* Tabs — no background change, just gold underline */
 .vlm-secnav { background:var(--hdr) !important; border-bottom:1px solid var(--bord) !important;
@@ -341,6 +350,14 @@ body.dark select.oi-sel option { background:var(--surf2); color:var(--text); }
                  weights read as a grey slab on a white row. */
               --spk-band15: rgba(74,96,128,0.05); --spk-band5: rgba(74,96,128,0.10); }
 body.dark .spark-wrap { --spk-band15: rgba(74,96,128,0.20); --spk-band5: rgba(74,96,128,0.38); }
+/* Current-value label: HTML, not SVG <text> -- the sparkline's viewBox is stretched
+   horizontally (preserveAspectRatio="none"), which distorts glyphs. Sitting outside
+   the <svg> keeps it crisp at any column width. */
+.spark-val { position:absolute; right:2px; top:50%; transform:translateY(-50%);
+             font-size:10px; font-weight:700; line-height:1; color:var(--text);
+             font-variant-numeric:tabular-nums; pointer-events:none;
+             padding:1px 3px; border-radius:2px; background:var(--bg);
+             box-shadow:0 0 0 2px var(--bg); }
 .oi-tooltip { display:none; position:fixed; background:var(--surf);
               border:1px solid var(--bord2); border-radius:3px; padding:5px 10px;
               font-size:11px; white-space:nowrap; z-index:999;
@@ -447,7 +464,7 @@ body.dark .htbl td { border-bottom:1px solid var(--bord); }
     <div class="vlm-dot"></div>
     <span class="vlm-asof" id="asof">Loading...</span>
     <span class="vlm-asof" id="clk"></span>
-    <a href="https://vlmdata.com" target="_blank" rel="noopener" style="color:var(--acc);text-decoration:none;font-size:11px;letter-spacing:.05em;font-family:inherit;">&#8592; vlmdata.com</a>
+    <a href="https://vlmdata.com" target="_blank" rel="noopener" style="color:#E8C547;text-decoration:none;font-size:11px;letter-spacing:.05em;font-family:inherit;">&#8592; vlmdata.com</a>
     <button class="vlm-theme-btn" id="themeBtn" onclick="toggleTheme()">LIGHT</button>
   </div>
 </div>
@@ -708,6 +725,9 @@ function makeSpark(sparkData, val, lo5, hi5, lo15, hi15, color) {
       + Math.round(140*((hi5||tot)-(lo5||0))/(hi15||tot)) + '" height="10" fill="var(--spk-band5)"/>'
       + '<rect x="' + Math.round(pct*1.4-1) + '" y="6" width="3" height="16" rx="1" fill="' + color + '"/>'
       + '</svg>'
+      // Same HTML label as the main path, so per-ticker child rows (which have no
+      // history series) still show their current value rather than a bare bar.
+      + '<span class="spark-val">' + (val>=1e6?(val/1e6).toFixed(2)+'M':Math.round(val/1e3)+'k') + '</span>'
       + '</div>';
   }
 
@@ -742,16 +762,12 @@ function makeSpark(sparkData, val, lo5, hi5, lo15, hi15, color) {
     + '<rect x="' + PAD + '" y="' + hi5Y + '" width="' + (W-PAD*2) + '" height="' + Math.max(1,lo5Y-hi5Y) + '" fill="var(--spk-band5)"/>'
     + '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linejoin="round"/>'
     + '<circle cx="' + lx + '" cy="' + ly + '" r="2.5" fill="' + color + '"/>'
-    // B4: current-value label anchored to the line's right endpoint.
-    // The viewBox is stretched horizontally (preserveAspectRatio="none") but text is NOT,
-    // so a label pinned to the right edge collides with the endpoint dot. Inset it, and
-    // push it to whichever side of the line has room; a surface-colored halo (paint-order
-    // stroke) keeps it legible where it crosses the band or the line itself.
-    + '<text x="' + (W+PAD*2-4) + '" y="' + (ly <= (H/2) ? Math.min(H+PAD, ly+9) : Math.max(7, ly-5)) + '" text-anchor="end" '
-    + 'font-size="7" font-weight="700" fill="var(--text)" opacity="0.85" '
-    + 'stroke="var(--surf)" stroke-width="2.2" paint-order="stroke" '
-    + 'style="font-variant-numeric:tabular-nums;">' + (val>=1e6?(val/1e6).toFixed(2)+'M':Math.round(val/1e3)+'k') + '</text>'
     + '</svg>'
+    // B4: current-value label. Rendered as HTML OUTSIDE the <svg>, not as <text> inside it:
+    // the viewBox is stretched ~1.8x horizontally by preserveAspectRatio="none", which
+    // stretches glyphs too and smears the number. An absolutely-positioned span scales
+    // with nothing and stays crisp.
+    + '<span class="spark-val">' + (val>=1e6?(val/1e6).toFixed(2)+'M':Math.round(val/1e3)+'k') + '</span>'
     + '</div>';
 }
 
@@ -2117,7 +2133,10 @@ function clearOptHistory() {
 function _renderOptHistRows(allRows, status, result) {
   if (!allRows || !allRows.length) { status.textContent = 'No data found'; return; }
   status.textContent = allRows.length + ' rows';
-  var GREEN='#22c55e', RED='#ef4444', DIM='#64748b', WHITE='#f1f5f9', DARK='#0d1520', ALT='#0a1018', GOLD='#E8C547';
+  // Same token treatment as setupOptTab/_renderOptContent: chrome follows the theme,
+  // GREEN/RED stay literal (call/put + up/down data semantics, DECISIONS §6).
+  var GREEN='#22c55e', RED='#ef4444', DIM='var(--muted)', WHITE='var(--text)',
+      DARK='var(--bg)', ALT='var(--surf2)', GOLD='var(--gold)';
   function cChg(v){ return v>0?GREEN:v<0?RED:DIM; }
   var html = '<div style="margin-bottom:12px;">';
   var groups = {};
@@ -2126,8 +2145,8 @@ function _renderOptHistRows(allRows, status, result) {
     var rows = groups[sec];
     /* separator bar between strike groups */
     html += '<div style="margin-bottom:16px;">'
-          + '<div style="background:#0f1e35;padding:5px 14px 5px 10px;font-size:12px;font-weight:700;border-left:3px solid '+(rows[0].pc==='C'?GREEN:RED)+';color:'+(rows[0].pc==='C'?GREEN:RED)+';">'+sec+'</div>'
-          + '<div style="display:grid;grid-template-columns:100px 1fr 1fr 1fr 1fr;background:#080f1a;">'
+          + '<div style="background:var(--surf2);padding:5px 14px 5px 10px;font-size:12px;font-weight:700;border-left:3px solid '+(rows[0].pc==='C'?GREEN:RED)+';color:'+(rows[0].pc==='C'?GREEN:RED)+';">'+sec+'</div>'
+          + '<div style="display:grid;grid-template-columns:100px 1fr 1fr 1fr 1fr;background:var(--hdr);">'
           + ['DATE','OPEN INT','OI CHG','SETTLE','VOLUME'].map(function(h){
               return '<div style="font-size:10px;font-weight:700;color:'+DIM+';text-align:right;padding:3px 8px;letter-spacing:.5px;">'+h+'</div>';
             }).join('')+'</div>';
