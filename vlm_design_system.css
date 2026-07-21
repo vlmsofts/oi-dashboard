@@ -356,16 +356,15 @@ body.dark .vlm-r-long          { background: rgba(34,197,94,.03); }
 body.dark .vlm-r-short         { background: rgba(239,68,68,.03); }
 body.dark .vlm-r-spread        { background: rgba(192,132,252,.03); }
 
-/* Light-mode values for the same hardcoded-dark properties. */
+/* Light-mode values for the genuinely hardcoded-dark properties only.
+   th / .vlm-r-sec td / .vlm-r-oi / -lbl / -wrap are NOT listed here: their
+   base rules already use var(--hdr) / var(--surf) / var(--bord), which resolve
+   per theme. Hardcoding the light values here made them apply in dark mode too
+   -- light-grey panels with light-grey text, unreadable. */
 .vlm-tbl td                    { border-bottom: 1px solid #d1dce8; }
-.vlm-tbl th                    { background: #d4dde8; }
-.vlm-r-sec td                  { background: #c8d4e0; }
 .vlm-r-long                    { background: rgba(21,128,61,.06); }
 .vlm-r-short                   { background: rgba(185,28,28,.06); }
 .vlm-r-spread                  { background: rgba(126,34,206,.06); }
-.vlm-r-oi                      { background: #d4dde8; border-top: 2px solid #b0bfd0; }
-.vlm-tbl-lbl                   { background: #d4dde8; }
-.vlm-tbl-wrap                  { background: #ffffff; }
 
 /* ── Sparkline cards ─────────────────────────────────────────────────────── */
 .vlm-sparkcard {
