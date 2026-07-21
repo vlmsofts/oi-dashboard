@@ -315,9 +315,11 @@ body.dark select.oi-sel option { background:var(--surf2); color:var(--text); }
            transition:background .1s; }
 .agg-row:hover { background:var(--surf2); }
 .ct-row  { padding:8px 14px; align-items:center; background:var(--bg);
-           border-bottom:1px solid #1a2030; cursor:pointer; transition:background .1s; }
+           border-bottom:1px solid var(--bord); cursor:pointer; transition:background .1s; }
 .ct-row:hover { background:var(--surf2); }
-.ct-row.sel   { background:#0f1e35; border-left:3px solid var(--acc); }
+/* NOTE: .ct-row.sel background is set by the light/dark pair further down (see
+   the .ct-row block near the media query) -- same specificity, later in source. */
+.ct-row.sel   { border-left:3px solid var(--acc); }
 
 .c  { font-size:15px; font-weight:700; text-align:right; padding:3px 6px;
       white-space:nowrap; overflow:hidden; color:var(--text); }
@@ -334,9 +336,11 @@ body.dark select.oi-sel option { background:var(--surf2); color:var(--text); }
 .ct-month { color:var(--dim); font-size:11px; font-weight:600; margin-left:5px; }
 .fn { color:var(--muted); font-size:11px; font-weight:600; letter-spacing:.5px; }
 
-.spark-wrap { position:relative; width:100%; height:28px; cursor:crosshair; }
-.spark-wrap svg rect { filter: brightness(0.6); }
-body.dark .spark-wrap svg rect { filter: none; }
+.spark-wrap { position:relative; width:100%; height:28px; cursor:crosshair;
+              /* Range-band fills behind the sparkline, tuned per theme: the dark-mode
+                 weights read as a grey slab on a white row. */
+              --spk-band15: rgba(74,96,128,0.05); --spk-band5: rgba(74,96,128,0.10); }
+body.dark .spark-wrap { --spk-band15: rgba(74,96,128,0.20); --spk-band5: rgba(74,96,128,0.38); }
 .oi-tooltip { display:none; position:fixed; background:var(--surf);
               border:1px solid var(--bord2); border-radius:3px; padding:5px 10px;
               font-size:11px; white-space:nowrap; z-index:999;
@@ -410,7 +414,7 @@ body.dark .spark-wrap svg rect { filter: none; }
            border-bottom:1px solid var(--acc); white-space:nowrap;
            text-transform:uppercase; }
 .htbl th:first-child { text-align:left; }
-.htbl td { padding:5px 10px; text-align:right; border-bottom:1px solid #1a2030;
+.htbl td { padding:5px 10px; text-align:right; border-bottom:1px solid var(--bord);
            color:var(--text); font-size:13px; font-weight:600; }
 .htbl td:first-child { text-align:left; color:var(--muted); font-size:12px; }
 .htbl tr:hover td { background:var(--surf2); }
@@ -422,7 +426,7 @@ body.dark .spark-wrap svg rect { filter: none; }
 body.dark .ct-row { background:var(--bg); }
 body.dark .ct-row:hover { background:var(--surf2); }
 body.dark .ct-row.sel { background:#0f1e35; }
-body.dark .htbl td { border-bottom:1px solid #1a2030; }
+body.dark .htbl td { border-bottom:1px solid var(--bord); }
 
 @media(max-width:800px){
   .G { grid-template-columns:90px 72px 72px 76px 1fr 64px 54px !important; }
@@ -699,9 +703,9 @@ function makeSpark(sparkData, val, lo5, hi5, lo15, hi15, color) {
     var sTip = 'Now: ' + f0(val) + ' | 5yr Hi: ' + f0(hi5) + ' | 5yr Lo: ' + f0(lo5) + ' | 15yr Hi: ' + f0(hi15) + ' | 15yr Lo: ' + f0(lo15);
     return '<div class="spark-wrap" data-tip="' + sTip + '" onmouseenter="showTip(event,this.dataset.tip)" onmouseleave="hideTip()">'
       + '<svg width="100%" height="28" viewBox="0 0 140 28" preserveAspectRatio="none">'
-      + '<rect x="0" y="8" width="140" height="12" fill="rgba(74,96,128,0.15)"/>'
+      + '<rect x="0" y="8" width="140" height="12" fill="var(--spk-band15)"/>'
       + '<rect x="' + Math.round(140*(lo5||0)/(hi15||tot)) + '" y="9" width="'
-      + Math.round(140*((hi5||tot)-(lo5||0))/(hi15||tot)) + '" height="10" fill="rgba(74,96,128,0.28)"/>'
+      + Math.round(140*((hi5||tot)-(lo5||0))/(hi15||tot)) + '" height="10" fill="var(--spk-band5)"/>'
       + '<rect x="' + Math.round(pct*1.4-1) + '" y="6" width="3" height="16" rx="1" fill="' + color + '"/>'
       + '</svg>'
       + '</div>';
@@ -734,14 +738,18 @@ function makeSpark(sparkData, val, lo5, hi5, lo15, hi15, color) {
 
   return '<div class="spark-wrap" data-tip="' + tipTxt + '" onmouseenter="showTip(event,this.dataset.tip)" onmouseleave="hideTip()">'
     + '<svg width="100%" height="28" viewBox="0 0 ' + (W+PAD*2) + ' ' + (H+PAD*2) + '" preserveAspectRatio="none">'
-    + '<rect x="' + PAD + '" y="' + hiY + '" width="' + (W-PAD*2) + '" height="' + Math.max(1,loY-hiY) + '" fill="rgba(74,96,128,0.20)"/>'
-    + '<rect x="' + PAD + '" y="' + hi5Y + '" width="' + (W-PAD*2) + '" height="' + Math.max(1,lo5Y-hi5Y) + '" fill="rgba(74,96,128,0.38)"/>'
+    + '<rect x="' + PAD + '" y="' + hiY + '" width="' + (W-PAD*2) + '" height="' + Math.max(1,loY-hiY) + '" fill="var(--spk-band15)"/>'
+    + '<rect x="' + PAD + '" y="' + hi5Y + '" width="' + (W-PAD*2) + '" height="' + Math.max(1,lo5Y-hi5Y) + '" fill="var(--spk-band5)"/>'
     + '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linejoin="round"/>'
     + '<circle cx="' + lx + '" cy="' + ly + '" r="2.5" fill="' + color + '"/>'
-    // B4: faint current-value label at the line's right endpoint, so the shape is anchored to a number.
-    // right-align near the endpoint; nudge y toward mid so it doesn't clip top/bottom.
-    + '<text x="' + (W+PAD*2-1) + '" y="' + Math.min(H, Math.max(7, ly)) + '" text-anchor="end" '
-    + 'font-size="7" font-weight="700" fill="' + color + '" opacity="0.72" '
+    // B4: current-value label anchored to the line's right endpoint.
+    // The viewBox is stretched horizontally (preserveAspectRatio="none") but text is NOT,
+    // so a label pinned to the right edge collides with the endpoint dot. Inset it, and
+    // push it to whichever side of the line has room; a surface-colored halo (paint-order
+    // stroke) keeps it legible where it crosses the band or the line itself.
+    + '<text x="' + (W+PAD*2-4) + '" y="' + (ly <= (H/2) ? Math.min(H+PAD, ly+9) : Math.max(7, ly-5)) + '" text-anchor="end" '
+    + 'font-size="7" font-weight="700" fill="var(--text)" opacity="0.85" '
+    + 'stroke="var(--surf)" stroke-width="2.2" paint-order="stroke" '
     + 'style="font-variant-numeric:tabular-nums;">' + (val>=1e6?(val/1e6).toFixed(2)+'M':Math.round(val/1e3)+'k') + '</text>'
     + '</svg>'
     + '</div>';
@@ -1603,11 +1611,13 @@ function buildOptions() {
   }
 
   // Build selector bar (persists across re-renders)
-  var GREEN='#22c55e', RED='#ef4444', DIM='#64748b', WHITE='#f1f5f9';
-  var DARK='#0d1520', ALT='#0a1018', MONTH_BG='#0f1e35', HDR_BG='#080f1a', GOLD='#E8C547';
+  // Surfaces/text read from theme tokens so this tab follows light/dark like the rest of
+  // the dashboard; GREEN/RED stay literal -- they are call/put data semantics, not chrome.
+  var GREEN='#22c55e', RED='#ef4444', DIM='var(--muted)', WHITE='var(--text)';
+  var DARK='var(--surf)', ALT='var(--surf2)', MONTH_BG='var(--hdr)', HDR_BG='var(--hdr)', GOLD='var(--gold)';
 
   var selectorHtml = '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;'+
-    'border-bottom:1px solid #1e3a5f;margin-bottom:10px;">'+
+    'border-bottom:1px solid var(--bord);margin-bottom:10px;">'+
     '<span style="font-size:11px;font-weight:700;letter-spacing:1px;color:'+DIM+';">COMMODITY</span>';
   Object.keys(OPT_COMM_CFG).forEach(function(c) {
     var cfg = OPT_COMM_CFG[c];
@@ -1658,8 +1668,9 @@ function _renderOptContent(od) {
     return;
   }
 
-  var GREEN='#22c55e', RED='#ef4444', DIM='#64748b', WHITE='#f1f5f9';
-  var DARK='#0d1520', ALT='#0a1018', MONTH_BG='#0f1e35', HDR_BG='#080f1a', GOLD='#E8C547';
+  // Theme tokens (see setupOptTab): chrome follows light/dark, GREEN/RED stay data semantics.
+  var GREEN='#22c55e', RED='#ef4444', DIM='var(--muted)', WHITE='var(--text)';
+  var DARK='var(--surf)', ALT='var(--surf2)', MONTH_BG='var(--hdr)', HDR_BG='var(--hdr)', GOLD='var(--gold)';
   var commColor = OPT_COMM_CFG[_optComm] ? OPT_COMM_CFG[_optComm].color : GOLD;
   var GRID = '1fr 1fr 1fr 1fr 1fr';
 
@@ -1671,7 +1682,7 @@ function _renderOptContent(od) {
 
   function colHdr(label) {
     return '<div style="font-size:11px;font-weight:700;color:'+DIM+';text-align:right;'+
-           'letter-spacing:.6px;padding:4px 8px;border-bottom:1px solid #1e3a5f;">'+label+'</div>';
+           'letter-spacing:.6px;padding:4px 8px;border-bottom:1px solid var(--bord);">'+label+'</div>';
   }
   function cell(content, color, size) {
     return '<div style="font-size:'+(size||14)+'px;font-weight:700;color:'+(color||WHITE)+
@@ -1714,8 +1725,8 @@ function _renderOptContent(od) {
                 '</div>';
       });
 
-      html += '<div style="display:grid;grid-template-columns:'+GRID+';background:#0a1525;'+
-              'border-top:1px solid #1e3a5f;margin-bottom:8px;">'+
+      html += '<div style="display:grid;grid-template-columns:'+GRID+';background:'+ALT+';'+
+              'border-top:1px solid var(--bord);margin-bottom:8px;">'+
               '<div style="font-size:11px;font-weight:700;color:'+DIM+';padding:4px 8px;text-align:right;">TOTAL</div>'+
               cell(fmtN(totOI), commColor)+
               cell(fmtC(totChg), cChg(totChg))+
@@ -1738,8 +1749,8 @@ function _renderOptContent(od) {
   });
   allStrikes.sort(function(a,b){return a-b;});
 
-  var SEL = 'background:#0d1520;border:1px solid #2a3548;color:'+WHITE+';padding:4px 8px;font-size:12px;border-radius:3px;';
-  var histHtml = '<div style="background:#0a1525;border:1px solid #1e3a5f;border-radius:4px;'+
+  var SEL = 'background:'+DARK+';border:1px solid var(--bord);color:'+WHITE+';padding:4px 8px;font-size:12px;border-radius:3px;';
+  var histHtml = '<div style="background:'+ALT+';border:1px solid var(--bord);border-radius:4px;'+
                  'padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'+
                  '<span style="font-size:11px;font-weight:700;letter-spacing:1px;color:'+DIM+';">HISTORY SEARCH</span>'+
                  '<select id="optHMonth" style="'+SEL+'">'+
@@ -1747,7 +1758,7 @@ function _renderOptContent(od) {
                  od.months.map(function(m){return '<option>'+m+'</option>';}).join('')+
                  '</select>'+
                  '<div style="display:flex;flex-direction:column;gap:2px;align-items:flex-start;">'+
-                 '<span style="font-size:9px;color:#6b8090;letter-spacing:.5px;font-family:inherit;text-transform:uppercase;">Strike — ctrl+click multi</span>'+
+                 '<span style="font-size:9px;color:'+DIM+';letter-spacing:.5px;font-family:inherit;text-transform:uppercase;">Strike — ctrl+click multi</span>'+
                  '<select id="optHStrike" multiple size="5" style="'+SEL+';cursor:pointer;min-width:90px;">'+
                  allStrikes.map(function(s){return '<option value="'+s+'">'+s.toFixed(2)+'</option>';}).join('')+
                  '</select></div>'+
@@ -1758,10 +1769,10 @@ function _renderOptContent(od) {
                  '<input id="optHFrom" type="date" style="'+SEL+'">'+
                  '<span style="font-size:11px;color:'+DIM+';">TO</span>'+
                  '<input id="optHTo" type="date" style="'+SEL+'">'+
-                 '<button onclick="runOptHistory()" style="background:#1e3a5f;border:1px solid #3b82f6;'+
+                 '<button onclick="runOptHistory()" style="background:var(--blue);border:1px solid var(--blue);color:#fff;'+
                  'color:'+WHITE+';padding:4px 14px;font-size:12px;border-radius:3px;cursor:pointer;font-weight:700;">GO</button>'+
                  '<button onclick="clearOptHistory()" '+
-                 'style="background:transparent;border:1px solid #2a3548;color:'+DIM+';'+
+                 'style="background:transparent;border:1px solid var(--bord);color:'+DIM+';'+
                  'padding:4px 10px;font-size:12px;border-radius:3px;cursor:pointer;">CLEAR</button>'+
                  '<span id="optHStatus" style="font-size:11px;color:'+DIM+';"></span>'+
                  '</div>'+
@@ -1769,14 +1780,16 @@ function _renderOptContent(od) {
 
   var commName = OPT_COMM_CFG[_optComm] ? OPT_COMM_CFG[_optComm].label : _optComm+' OPTIONS';
   var out = '<div style="display:flex;align-items:center;padding:8px 14px;'+
-            'border-bottom:1px solid #1e3a5f;margin-bottom:10px;">'+
+            'border-bottom:1px solid var(--bord);margin-bottom:10px;">'+
             '<span style="font-size:12px;font-weight:700;letter-spacing:2px;color:'+DIM+';">'+
             commName.toUpperCase()+' OPTIONS — OI BY CONTRACT MONTH</span>'+
-            '<span style="font-size:11px;color:#475569;margin-left:auto;">'+od.last_date+' &nbsp;·&nbsp; as of trade date '+_prevBday(od.last_date)+'</span></div>';
+            '<span style="font-size:11px;color:'+DIM+';margin-left:auto;">'+od.last_date+' &nbsp;·&nbsp; as of trade date '+_prevBday(od.last_date)+'</span></div>';
   out += histHtml;
   out += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">';
-  out += '<div>'+buildSection('CALLS', GREEN, 'calls', '#0a2010')+'</div>';
-  out += '<div>'+buildSection('PUTS',  RED,   'puts',  '#20080a')+'</div>';
+  // Call/put banner tints: alpha over the theme surface so they read as a faint green/red
+  // wash in BOTH themes (the old near-black tints were slabs on a light row).
+  out += '<div>'+buildSection('CALLS', GREEN, 'calls', 'rgba(34,197,94,.10)')+'</div>';
+  out += '<div>'+buildSection('PUTS',  RED,   'puts',  'rgba(239,68,68,.10)')+'</div>';
   out += '</div>';
   content.innerHTML = out;
 }
