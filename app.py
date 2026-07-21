@@ -239,13 +239,13 @@ HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>OI Monitor — VLM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 %%CSS%%
 
 /* OI dashboard overrides */
-body { color: var(--text); font-family: 'Aptos', 'Nunito', 'Segoe UI Semibold', 'Segoe UI', sans-serif !important; }
+body { color: var(--text); font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important; }
 * { font-family: inherit; }
 .vlm-logo     { color: var(--text) !important; }
 .vlm-logo-sub { color: var(--dim)  !important; letter-spacing:2px; }
@@ -274,14 +274,16 @@ body { color: var(--text); font-family: 'Aptos', 'Nunito', 'Segoe UI Semibold', 
 .vlm-btn { color:var(--dim) !important; font-weight:600; letter-spacing:1px; }
 .vlm-btn:hover { color:var(--text) !important; border-color:var(--dim) !important; }
 .vlm-btn.act { color:#fff !important; background:#1e3a5f !important; border-color:var(--blue) !important; }
-body.light .vlm-btn.act { color:#fff !important; background:#1e40af !important; border-color:#1e40af !important; }
+.vlm-btn.act { color:#fff !important; background:#1e40af !important; border-color:#1e40af !important; }
+body.dark .vlm-btn.act { color:var(--text) !important; background:#1e2a3f !important; border-color:#4a6080 !important; }
 .vlm-pos { color:var(--grn) !important; font-weight:700; }
 .vlm-neg { color:var(--red) !important; font-weight:700; }
 .vlm-muted { color:var(--muted) !important; }
 select.oi-sel { color:var(--text) !important; font-weight:600; }
 select.oi-sel option { background:var(--surf2); color:var(--text); }
 input.d-inp { color:var(--text) !important; }
-body.light select.oi-sel option { background:#fff; color:#1a202c; }
+select.oi-sel option { background:#fff; color:#1a202c; }
+body.dark select.oi-sel option { background:var(--surf2); color:var(--text); }
 
 /* Year range slider */
 .yr-slider-wrap { display:flex; align-items:center; gap:8px; }
@@ -333,7 +335,8 @@ body.light select.oi-sel option { background:#fff; color:#1a202c; }
 .fn { color:var(--muted); font-size:11px; font-weight:600; letter-spacing:.5px; }
 
 .spark-wrap { position:relative; width:100%; height:28px; cursor:crosshair; }
-body.light .spark-wrap svg rect { filter: brightness(0.6); }
+.spark-wrap svg rect { filter: brightness(0.6); }
+body.dark .spark-wrap svg rect { filter: none; }
 .oi-tooltip { display:none; position:fixed; background:var(--surf);
               border:1px solid var(--bord2); border-radius:3px; padding:5px 10px;
               font-size:11px; white-space:nowrap; z-index:999;
@@ -412,10 +415,14 @@ body.light .spark-wrap svg rect { filter: brightness(0.6); }
 .htbl td:first-child { text-align:left; color:var(--muted); font-size:12px; }
 .htbl tr:hover td { background:var(--surf2); }
 
-body.light .ct-row { background:var(--surf2); border-bottom:1px solid var(--bord); }
-body.light .ct-row:hover { background:var(--hdr); }
-body.light .ct-row.sel { background:#dce8ff; border-left:3px solid var(--acc); }
-body.light .htbl td { border-bottom:1px solid var(--bord); }
+.ct-row { background:var(--surf2); border-bottom:1px solid var(--bord); }
+.ct-row:hover { background:var(--hdr); }
+.ct-row.sel { background:#dce8ff; border-left:3px solid var(--acc); }
+.htbl td { border-bottom:1px solid var(--bord); }
+body.dark .ct-row { background:var(--bg); }
+body.dark .ct-row:hover { background:var(--surf2); }
+body.dark .ct-row.sel { background:#0f1e35; }
+body.dark .htbl td { border-bottom:1px solid #1a2030; }
 
 @media(max-width:800px){
   .G { grid-template-columns:90px 72px 72px 76px 1fr 64px 54px !important; }
@@ -436,7 +443,7 @@ body.light .htbl td { border-bottom:1px solid var(--bord); }
     <div class="vlm-dot"></div>
     <span class="vlm-asof" id="asof">Loading...</span>
     <span class="vlm-asof" id="clk"></span>
-    <a href="https://vlmdata.com" target="_blank" rel="noopener" style="color:var(--acc);text-decoration:none;font-size:11px;letter-spacing:.05em;font-family:'Courier New',monospace;">&#8592; vlmdata.com</a>
+    <a href="https://vlmdata.com" target="_blank" rel="noopener" style="color:var(--acc);text-decoration:none;font-size:11px;letter-spacing:.05em;font-family:inherit;">&#8592; vlmdata.com</a>
     <button class="vlm-theme-btn" id="themeBtn" onclick="toggleTheme()">LIGHT</button>
   </div>
 </div>
@@ -641,7 +648,7 @@ function hideTip() {
   if (_tip) _tip.style.display = 'none';
 }   // full history cache from /api/history/<comm>
 
-const light = () => document.body.classList.contains('light');
+const light = () => !document.body.classList.contains('dark');
 
 /* ── Formatters ── */
 const f0 = n => (n == null || n === '' || isNaN(+n)) ? '—'
@@ -664,7 +671,7 @@ function cc() {
 
 /* ── Theme ── */
 function toggleTheme() {
-  document.body.classList.toggle('light');
+  document.body.classList.toggle('dark');
   document.getElementById('themeBtn').textContent = light() ? 'DARK' : 'LIGHT';
   Object.values(CH).forEach(c => { if (c) c.destroy(); });
   Object.keys(CH).forEach(k => delete CH[k]);
@@ -1569,10 +1576,10 @@ var maxYrs = Math.max.apply(null, Object.values(DATA.commodities).map(function(c
 var slider = document.getElementById('seasYrSlider');
 if (slider) { slider.max = maxYrs; }
 
-if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-  document.body.classList.add('light');
-  document.getElementById('themeBtn').textContent = 'DARK';
-}
+/* Light is the default (VLM master palette); DARK is an opt-in toggle.
+   Previously this was gated on the OS prefers-color-scheme, so a dark-mode
+   machine loaded the dark theme -- light must not depend on the OS. */
+document.getElementById('themeBtn').textContent = 'DARK';
 initTooltip();
 populateTblContract();
 populateSeasContract();
