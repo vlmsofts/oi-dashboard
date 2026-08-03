@@ -340,37 +340,61 @@ def main():
     parser.add_argument('--output', default='output')
     args = parser.parse_args()
     paths = build_whatsapp_oi(args.output)
-    if paths:
-        import subprocess, sys as _sys
-        folder = pathlib.Path(paths[0]).parent
-        subprocess.Popen(f'explorer "{folder}"')
+    if not paths:
+        return
 
-        try:
-            from vlm_post import post_to_vlm
-            as_of = folder.name
-            if _sys.stdin.isatty():
-                _ans = input(f'\nPost OI Monitor ({as_of}) to the VLM site? [y/N] ').strip().lower()
-            else:
-                _ans = 'n'
-            if _ans == 'y':
-                all_rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
-                as_of_date = max(r['date'] for r in all_rows)   # futures trade date
-                opt_target = _next_bday(as_of_date)              # options release date
-                site_html = ''
-                for comm in ['CT', 'KC', 'CC', 'SB']:
-                    futures, agg_oi, agg_chg, _ = load_futures(comm)
-                    opts, _, _ = load_options_top10(comm, target_date=opt_target)
-                    site_html += build_html(futures, agg_oi, agg_chg, opts, as_of_date, comm)
-                post_to_vlm(
-                    title    = f'Open Interest Monitor — {as_of_date}',
-                    content  = site_html,
-                    category = 'oi',
-                    excerpt  = f'VLM daily open interest monitor — as of {as_of_date}.',
-                )
-            else:
-                print('[vlm_post] skipped')
-        except Exception as _e:
-            print(f'[vlm_post] skipped: {_e}')
+    import subprocess
+    folder = pathlib.Path(paths[0]).parent
+    subprocess.Popen(f'explorer "{folder}"')
+
+    # Each send path is isolated in its own try/except so a failure in one
+    # (Twilio outage, R2 credential issue, site down) never blocks the others.
+    # Failures accumulate into _send_failures purely for the end-of-run summary
+    # printed to the terminal — nothing here prompts or blocks unattended runs.
+    _send_failures = []
+
+    print()
+    try:
+        from send_oi_whatsapp import main as _send_wa
+        _summary = _send_wa(whatsapp_dir=str(folder))
+        if _summary.get('failed'):
+            _send_failures.append(f"whatsapp send: {_summary['errors']}")
+    except Exception as _e:
+        print(f'[whatsapp] send FAILED: {_e}')
+        _send_failures.append(f"whatsapp send: {_e}")
+
+    try:
+        from vlm_post import post_to_vlm
+        as_of = folder.name
+        all_rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
+        as_of_date = max(r['date'] for r in all_rows)   # futures trade date
+        opt_target = _next_bday(as_of_date)              # options release date
+        site_html = ''
+        for comm in ['CT', 'KC', 'CC', 'SB']:
+            futures, agg_oi, agg_chg, _ = load_futures(comm)
+            if not futures:
+                # Mirror build_whatsapp_oi()'s skip: no futures data that day (holiday/
+                # gap) means no PNG was generated/sent for this commodity either, so the
+                # site post must not show an empty "TOTAL 0" section for it.
+                continue
+            opts, _, _ = load_options_top10(comm, target_date=opt_target)
+            site_html += build_html(futures, agg_oi, agg_chg, opts, as_of_date, comm)
+        post_to_vlm(
+            title    = f'Open Interest Monitor — {as_of_date}',
+            content  = site_html,
+            category = 'oi',
+            excerpt  = f'VLM daily open interest monitor — as of {as_of_date}.',
+        )
+    except Exception as _e:
+        print(f'[vlm_post] FAILED: {_e}')
+        _send_failures.append(f"vlm site post: {_e}")
+
+    if _send_failures:
+        print(f'\n{len(_send_failures)} send path(s) failed:')
+        for _f in _send_failures:
+            print(f'  - {_f}')
+    else:
+        print('\nAll send paths OK (WhatsApp + site post).')
 
 if __name__ == '__main__':
     main()
