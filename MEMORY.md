@@ -1,5 +1,36 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-04 — WhatsApp auto-send was never scheduled + freshness guard added
+
+**What happened:** Lou double-clicked `OPEN INTEREST.bat` manually and WhatsApp images sent
+fine (as always) — but the *unattended* run he expected didn't happen. Root cause: only the
+data pipeline (`vlm master fetch`, Task Scheduler, daily 09:30, `VLM Data/vlm_master_fetch.py`)
+was ever automated. `build_whatsapp_oi.py` (WhatsApp PNGs + site post) had **zero** scheduled
+task — `OPEN INTEREST.bat`/`Run_OI_Update.bat` on the Desktop were always manual-only Explorer
+shortcuts. Commit b53c902 (Aug 3) made the *manual* run auto-send instead of y/N-prompting;
+it never added scheduling. `gh run list` confirmed zero GitHub Actions runs ever (not the
+mechanism) — all "auto:" commits are local Task Scheduler + local git identity.
+
+**Fix (Lou-approved):**
+1. New Task Scheduler task `VLM OI WhatsApp AutoSend` — Mon–Fri 09:35 EST (5 min after
+   `vlm master fetch` finishes, confirmed by today's commit timestamps ending 09:33:19),
+   runs `build_whatsapp_oi.py` via `pythonw.exe`, mirrors `vlm master fetch`'s action pattern.
+2. **Freshness guard** added: `check_freshness()` in `build_whatsapp_oi.py`. Two checks, both
+   must pass or the SEND (not image generation) is skipped:
+   - `oi_data.csv` mtime must be today's calendar date — proves master fetch actually touched
+     it today (catches a failed/late fetch still serving yesterday's row). NOTE: cannot compare
+     `trade_date == today` directly — OI is legitimately T+1, so a healthy 09:35 run always
+     shows yesterday's completed session; mtime is what proves freshness, not the date value.
+   - `.sent_<date>` marker file in the dated output folder — blocks a duplicate send if the
+     task ever double-fires. Written only on full send success (not on partial/total failure,
+     so a real Twilio/site outage stays retryable).
+   - `--force` flag bypasses both for manual override. Manual re-runs always regenerate PNGs
+     regardless of guard state — only the send step is gated.
+
+**Verify:** guard can't be proven live until the next scheduled fire (08-05 09:35) — check
+`Get-ScheduledTaskInfo -TaskName "VLM OI WhatsApp AutoSend"` for `LastTaskResult: 0` and that
+WhatsApp images actually landed.
+
 ## 2026-07-19 — Seasonal PNG mirrors on-screen layout (merge 3dc3aca)
 
 Lou reported: exporting the Seasonal PNG while GRID was selected produced the spaghetti

@@ -302,6 +302,32 @@ def render_png(html, png_path):
     return str(png_path)
 
 
+def check_freshness(as_of, out_dir):
+    """Freshness guard for the unattended 09:35 scheduled send.
+    Two independent checks, both must pass or the send is skipped:
+      1. Staleness: oi_data.csv must have been modified TODAY (calendar date).
+         If 'vlm master fetch' (09:30 daily) failed or hasn't landed yet, the
+         CSV's mtime will still be yesterday's — the file exists and has SOME
+         max date, but it's not a fresh row, just the last-known one. Comparing
+         only trade_date is not enough because OI is legitimately T+1 (today's
+         run always shows yesterday's completed session) — mtime is what proves
+         *today's* fetch actually touched the file.
+      2. Idempotency: a `.sent_<date>` marker in the dated output folder means
+         this session's images were already sent — guards against a double-fire
+         of the scheduled task (or a second unattended run) re-sending the same
+         PNGs to WhatsApp.
+    Returns (ok: bool, reason: str).
+    """
+    mtime = date.fromtimestamp(OI_FILE.stat().st_mtime)
+    if mtime != date.today():
+        return False, (f'oi_data.csv last modified {mtime} (not today, {date.today()}) — '
+                        f'master fetch has not updated it today, refusing to send stale data')
+    marker = out_dir / f'.sent_{as_of}'
+    if marker.exists():
+        return False, f'already sent for {as_of} (marker: {marker.name}) — skipping duplicate send'
+    return True, ''
+
+
 def build_whatsapp_oi(output_base='output'):
     """Generate one PNG per commodity (CT, KC, CC, SB)."""
     # oi_data.csv is ALREADY trade-date-stamped (daily job writes the actual trade
@@ -338,6 +364,8 @@ def build_whatsapp_oi(output_base='output'):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', default='output')
+    parser.add_argument('--force', action='store_true',
+                         help='Bypass the freshness/idempotency guard and send anyway.')
     args = parser.parse_args()
     paths = build_whatsapp_oi(args.output)
     if not paths:
@@ -346,6 +374,17 @@ def main():
     import subprocess
     folder = pathlib.Path(paths[0]).parent
     subprocess.Popen(f'explorer "{folder}"')
+
+    # Freshness guard: only gates the SEND step, never image generation, so a
+    # manual re-run always regenerates PNGs for review even if sending would be
+    # blocked. Use --force to send anyway (e.g. after manually confirming stale
+    # data is actually fine).
+    as_of = folder.name
+    ok, reason = check_freshness(as_of, folder)
+    if not ok and not args.force:
+        print(f'\n[freshness guard] SEND SKIPPED: {reason}')
+        print('  (images were still generated above; re-run with --force to send anyway)')
+        return
 
     # Each send path is isolated in its own try/except so a failure in one
     # (Twilio outage, R2 credential issue, site down) never blocks the others.
@@ -393,8 +432,13 @@ def main():
         print(f'\n{len(_send_failures)} send path(s) failed:')
         for _f in _send_failures:
             print(f'  - {_f}')
+        # No marker on failure — a genuine Twilio/site outage should stay retryable
+        # (via --force) rather than getting permanently silenced by the idempotency
+        # guard once whichever cause is fixed.
     else:
         print('\nAll send paths OK (WhatsApp + site post).')
+        (folder / f'.sent_{as_of}').write_text(
+            f'sent {datetime.now().isoformat()}\n', encoding='utf-8')
 
 if __name__ == '__main__':
     main()
