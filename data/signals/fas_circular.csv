@@ -1,3 +1,4 @@
 report_date,marketing_year,a_index_current,a_index_prev,a_index_chg,us_price_current,us_price_prev,us_price_chg,china_price_current,china_price_prev,india_price_current,brazil_price_current,china_vs_ct_premium,a_index_vs_us,fas_sentiment_score,fas_sentiment_direction,fas_bull_hits,fas_bear_hits,fas_keywords_found
 2026-06-01,2017/18,,,-6.9,,,-13.6,,,,,,,0.0,neutral,0,0,
 2026-07-01,2025/26,,,,,,,,,,,,,0.0,neutral,0,0,
+2026-08-01,2025/26,,,,,,,,,,,,,1.0,bullish,3,0,"6-year high, consumption growth, import surge"
