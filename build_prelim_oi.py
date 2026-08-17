@@ -23,7 +23,7 @@ Requires: playwright (PNG), openpyxl (xlsx)
 """
 
 import csv, argparse, pathlib, re, sys
-from datetime import datetime
+from datetime import datetime, date
 
 BASE_DIR = pathlib.Path(__file__).parent
 OI_FILE  = BASE_DIR / 'data' / 'oi_data.csv'
@@ -436,10 +436,32 @@ def main():
     ap.add_argument('--csv', help='explicit prelim CSV path')
     ap.add_argument('--no-png', action='store_true')
     ap.add_argument('--no-xlsx', action='store_true')
+    ap.add_argument('--max-age-days', type=int, default=4,
+                    help='refuse a CSV whose Report Date is older than this '
+                         '(0 disables the check)')
     args = ap.parse_args()
 
     src = find_prelim_csv(args.csv)
     report_date, prelim, ice_chg = load_prelim(src)
+
+    # Stale-CSV guard. The build is correct for whatever Report Date it is given,
+    # which is the danger: emailing an OLD download produces a perfectly valid
+    # report for the wrong session. Refuse rather than send right numbers for the
+    # wrong day. 4 days covers a Friday session picked up the following Monday
+    # (and a long weekend); --max-age-days 0 disables it for deliberate rebuilds.
+    if args.max_age_days:
+        try:
+            age = (date.today() - datetime.strptime(report_date, '%Y-%m-%d').date()).days
+        except ValueError:
+            sys.exit(f'ERROR: unparseable Report Date {report_date!r}')
+        if age > args.max_age_days:
+            sys.exit(f'ERROR: prelim CSV is stale — Report Date {report_date} is '
+                     f'{age} days old (limit {args.max_age_days}). This is almost '
+                     f'certainly an older download. Re-download from ICE, or pass '
+                     f'--max-age-days 0 to build it anyway.')
+        if age < 0:
+            sys.exit(f'ERROR: Report Date {report_date} is in the future — '
+                     f'refusing to build.')
     sessions, by_date = load_official()
     baselines = pick_baselines(sessions, report_date)
 

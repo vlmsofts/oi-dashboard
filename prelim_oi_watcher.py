@@ -7,7 +7,7 @@ legitimate unattended download. This closes that gap from the other end: Lou
 downloads the CSV on his phone at ~5am and emails it to himself; this watcher
 picks it up, builds the report, and sends the PNG back via WhatsApp.
 
-Trigger: an unread email whose SUBJECT contains PRELIM OI, with a .csv attached.
+Trigger: an unread email whose SUBJECT contains "prelim", with a .csv attached.
 Matching on subject (not sender) means it works from any address he happens to
 send from.
 
@@ -28,7 +28,11 @@ INBOX_DIR  = BASE_DIR / 'data' / 'prelim_inbox'
 OUT_DIR    = BASE_DIR / 'output' / 'prelim'
 LOG_FILE   = BASE_DIR / 'prelim_oi_watcher.log'
 
-SUBJECT_TOKEN = 'PRELIM OI'
+# Just 'prelim' -- IMAP SUBJECT search is a case-insensitive substring match, so
+# "prelim", "Prelim OI", "fwd: prelim" all trigger. Kept short so it is trivial to
+# type on a phone. It still has to be present: without a subject filter, ANY unread
+# mail with a CSV attached would trigger a build.
+SUBJECT_TOKEN = 'prelim'
 IMAP_HOST, IMAP_PORT = 'imap.gmail.com', 993
 
 
@@ -52,10 +56,20 @@ def log(msg):
 
 
 def connect():
+    # The app password lives under two different names across this machine:
+    # GMAIL_COTTON_APP_PASSWORD (OS env var, what gmail_gain_watcher.py uses) and
+    # GMAIL_APP_PASSWORD (repo .env). Accept either so the watcher does not depend
+    # on which one happens to be present.
     user = os.environ.get('GMAIL_USER')
-    pw   = os.environ.get('GMAIL_COTTON_APP_PASSWORD')
+    pw   = (os.environ.get('GMAIL_COTTON_APP_PASSWORD')
+            or os.environ.get('GMAIL_APP_PASSWORD'))
     if not (user and pw):
-        sys.exit('ERROR: GMAIL_USER / GMAIL_COTTON_APP_PASSWORD not set')
+        missing = []
+        if not user: missing.append('GMAIL_USER')
+        if not pw:   missing.append('GMAIL_COTTON_APP_PASSWORD or GMAIL_APP_PASSWORD')
+        log(f'ERROR: missing credential(s): {", ".join(missing)} — '
+            f'checked OS env, {BASE_DIR / ".env"}, {BASE_DIR.parent / "VLM Data" / ".env"}')
+        sys.exit(1)
     m = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
     m.login(user, pw)
     return m
@@ -79,22 +93,40 @@ def extract_csv(msg):
     """First CSV attachment as (filename, bytes). Some phone mail clients send
     CSVs as application/octet-stream or text/plain, so match on extension
     rather than trusting the declared content-type."""
+    found = []
     for part in msg.walk():
         fn = part.get_filename()
         if not fn or not fn.lower().endswith('.csv'):
             continue
         payload = part.get_payload(decode=True)
         if payload:
-            return fn, payload
-    return None, None
+            found.append((fn, payload))
+    if len(found) > 1:
+        # Only the first is processed; say so rather than discarding silently.
+        log(f'  NOTE: {len(found)} CSV attachments — using {found[0][0]!r}, '
+            f'ignoring {", ".join(repr(f) for f, _ in found[1:])}')
+    return found[0] if found else (None, None)
 
 
 def build(csv_path):
     """Run the builder as a subprocess so its own validation/exit codes govern.
-    Returns (ok, stdout)."""
-    r = subprocess.run(
-        [sys.executable, str(BASE_DIR / 'build_prelim_oi.py'), '--csv', str(csv_path)],
-        capture_output=True, text=True, cwd=str(BASE_DIR), timeout=300)
+    Returns (ok, output).
+
+    Timeout is kept safely under the Task Scheduler ExecutionTimeLimit (10 min) so
+    a slow build is caught HERE, with a log line, rather than being killed by the
+    scheduler with no trace. A timeout returns ok=False like any other failure, so
+    the email stays unread and the next 5-minute poll retries it.
+    """
+    try:
+        r = subprocess.run(
+            [sys.executable, str(BASE_DIR / 'build_prelim_oi.py'), '--csv', str(csv_path)],
+            capture_output=True, text=True, cwd=str(BASE_DIR), timeout=480)
+    except subprocess.TimeoutExpired as e:
+        dec = lambda v: (v.decode('utf-8', 'replace') if isinstance(v, bytes)
+                         else (v or ''))
+        return False, f'BUILD TIMEOUT after 480s\n{dec(e.stdout)}{dec(e.stderr)}'
+    except Exception as e:
+        return False, f'BUILD FAILED to launch: {e!r}'
     return r.returncode == 0, (r.stdout or '') + (r.stderr or '')
 
 
