@@ -34,3 +34,11 @@ build_whatsapp_oi old all commods.py
 
 # Environment secrets
 .env
+
+# ICE preliminary OI: inbound CSVs pulled from email by prelim_oi_watcher.py,
+# and generated report output. Source data arrives daily; not version-controlled.
+data/prelim_inbox/
+output/prelim/
+
+# Pre-backfill snapshot of oi_data.csv (2026-08-17 cycle-3 merge)
+data/oi_data.csv.BEFORE_CYCLE3
