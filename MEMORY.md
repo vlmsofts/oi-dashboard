@@ -1,5 +1,63 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-17 — ICE preliminary OI report + 3rd-cycle contract backfill
+
+**Worked on:** a daily report over ICE's *Preliminary Open Interest - Futures* CSV
+(CT/KC/CC/SB), showing DoD/WoW/MoM per contract month and per commodity, delivered
+to WhatsApp. Commits `4ffbc56` (feature) and `f8f00fe` (post-audit hardening), both
+pushed to origin/main.
+
+**Completed**
+- `build_prelim_oi.py` — joins the prelim CSV to official OI in `oi_data.csv`,
+  emits a 2×2 PNG (VLM master palette) + xlsx. Reconciles its own DoD against ICE's
+  published change column every run: **41/41 contracts agree, 0 mismatch**.
+- `prelim_oi_watcher.py` — IMAP trigger. Tested end-to-end under pythonw.exe.
+- Task Scheduler `VLM Prelim OI Watcher`, Mon–Fri 04:30–07:00, every 5 min.
+- `oi_data.csv` backfilled +1,902 rows (179,565 → 181,467): SBMAR3/MAY3/JUL3/OCT3 +
+  CTDEC3, 2025-01-02 → 2026-08-14. Backup `data/oi_data.csv.BEFORE_CYCLE3`.
+
+**Decisions made**
+- *Prelim is T+1, not "missing a baseline."* The prelim for session T publishes
+  BEFORE official T exists (master fetch is 09:30), so the baseline is the PRIOR
+  session, already on disk. A 5am run and a 10am run give identical numbers. Lou
+  corrected an earlier wrong framing of this; do not re-introduce window shifting.
+- *No unattended ICE download, ever.* `metadata/114` returns
+  `"recaptchaRequired": true` and `/criteria` 409s without a token. Rejected —
+  it would mean defeating an access control, robots.txt disallows
+  `/report-partial/`, and the report is subscriber-only. Sanctioned route is an
+  ICE Report Center subscription.
+- *Contract mapping is commodity-specific*: `last_trade` for CT/CC/KC, but
+  `first_notice` for SB (cash-settle — LTD falls the month BEFORE delivery).
+  Using one rule for all four fails ~13 contracts. Rejected a single-field rule.
+- *Partial totals sum what has a baseline and carry `*`* rather than blanking —
+  nulling cotton's headline DoD over a 2-lot back month was the worse trade.
+- *KC/CC 3rd cycle NOT added.* CC cycle-3 is INVALID in Bloomberg; `KCJUL3`
+  ALIASES to `'KC' JUL MONTHLY 1` and would double-count OI already in the file.
+- *Sugar's +10,440-lot aggregate step at 2025-01-02 accepted* (Lou's call).
+  Bloomberg has no cycle-3 history before then, so it cannot be backfilled away.
+  Sub-1% of SB's ~1.146M total.
+
+**Traps found (two audit rounds — all fixed, worth remembering)**
+1. Sorting the merged file by `first_notice` repositioned 161,943 of 179,529
+   existing rows. The file's real order is `(date, commodity)` + `OI_TICKERS`
+   INSERTION order. Splice new rows in; never re-sort.
+2. A generic ticker carries NO FND/LTD (even `SBOCT1`). They live on the DATED
+   contract, resolved per-date via historical `FUT_CUR_GEN_TICKER`.
+3. Master fetch's session test drops holiday bars, where Bloomberg publishes
+   OPEN_INT with no settle/volume. That OI-only shape is the file's own convention
+   (2,550 rows / 72 dates back to 2008). Resolve their contract from the NEAREST
+   populated gen, preferring the FOLLOWING one.
+4. Roll-boundary collision: two generics can share an LTD and map to the same
+   month (CCMAY1/CCMAY2 on 2026-05-13). Keep the lower generation.
+
+**Next session priorities**
+- Verify the first real unattended fire (2026-08-18 04:30) — `LastTaskResult: 0`
+  and a PNG on WhatsApp. Nothing has fired on the schedule yet.
+- Optional: a duplicate WhatsApp is possible if the process dies between a
+  successful send and the IMAP mark-read. Left open — needs a pre-send marker,
+  and the failure is a duplicate message, not wrong data.
+- Still open from 2026-07-23: CC/SB signal appenders were never built.
+
 ## 2026-08-04 — WhatsApp auto-send was never scheduled + freshness guard added
 
 **What happened:** Lou double-clicked `OPEN INTEREST.bat` manually and WhatsApp images sent
