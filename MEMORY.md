@@ -1,5 +1,46 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-17 — stray uncommitted files cleaned up; bad hv30/hv60 rewrite discarded
+
+**What happened:** repo had 14 uncommitted items sitting in the working tree,
+none from this session. Diagnosed and resolved each:
+- 9 handoff `.md` files (BLPAPI_BACKFILL_ROUND2_*, RECON_PROBE1_*,
+  ROLL_ALIGNMENT_RECON_SPEC, SESSION_BRIEF_2026-07-05_CORRECTION_SHIPPED,
+  VOLFILL_*) — all dated Jul 5, all inter-agent scratch notes from the volume
+  backfill program. The brief explicitly said "SHIPPED... MEMORY.md already
+  carries the decision log (commit `2335003`)." **DELETED.**
+- `basis_DARKFIX.png` / `carry_DARKFIX.png` (Jul 21) — standalone render
+  artifacts from a dark-mode contrast fix, referenced by no code. **DELETED.**
+- `vlm_signal_backfill_FRESH.csv` / `kc_signal_backfill_FRESH.csv` /
+  `vlm_signal_backfill.csv.BEFORE_ICE_REBUILD.csv` (Jul 23) — `_FRESH` proved to
+  be an EARLIER, less-complete draft (505 rows, blank IV/skew columns) than the
+  live working file (1,499 rows, populated) — not a superior rebuild as the
+  naming implied. Nothing in the repo's `.py` code references any of the three.
+  **DELETED.**
+
+**The one real issue — `vlm_signal_backfill.csv` modified in place, DISCARDED:**
+working copy had ~500 historical rows (2024-07-11 → 2025-12-31) rewritten, but
+ONLY in `hv30`/`hv60`/`iv_hv30_ratio`/`iv_hv30_ratio_zscore` — price/IV/spread
+columns untouched. Traced the actual values: HEAD's `hv30` is a smooth,
+monotone-decaying series (38.27→36.27→34.92→33.94→32.44→30.26...), textbook
+30-day rolling stdev decay. The working copy matches HEAD EXACTLY through
+2024-07-10 (34.9143 both), then drops 34.91→19.85 on 07-11 and **never rejoins
+the old curve** — a permanent level shift, not a one-day correction that snaps
+back. That is the signature of two different calcs/sources SPLICED together at
+07-11, not a bug fix. No code in the repo computes this file (0 grep hits), so
+the correct formula couldn't be independently re-derived to confirm which side
+was right — reverted to HEAD (`git checkout HEAD --`) as the safer default
+rather than commit an unverifiable rewrite. **If hv30/hv60 for pre-2026 dates
+ever needs revisiting, start here — check for a lookback-window or source
+change exactly at 2024-07-11 before trusting any future "fresher" rebuild.**
+
+**Why this matters:** the live daily appender (`backfill: append EOD row`
+commits, one row/day) was building on top of this uncommitted rewrite for 25
+days without anyone noticing the historical section had silently diverged from
+HEAD. Worth a periodic `git status` sanity check on data-signal repos with a
+daily auto-appender, since new rows can mask a stale historical edit sitting
+underneath.
+
 ## 2026-08-17 — ICE preliminary OI report + 3rd-cycle contract backfill
 
 **Worked on:** a daily report over ICE's *Preliminary Open Interest - Futures* CSV
