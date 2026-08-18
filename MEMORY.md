@@ -1,5 +1,18 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-18 — prelim OI TOTAL row contrast fix (commit 67d1f93)
+
+Lou flagged the DoD/WoW/MoM figures on each commodity's TOTAL row as hard to
+read against the navy `DKROW` (#2c3e50) band. Root cause: `GREEN`/`RED`
+(#15803d/#c0392b) are tuned for contrast on WHITE data rows, and go muddy on
+dark slate — the same problem the OI column had already solved (`OI_COL_TOT`
+light-blue swap for the totals row) but that fix was never extended to the
+delta colors. Added `GREEN_TOT`/`RED_TOT`/`LGRAY_TOT` (brighter variants) and
+gave `cc()` an `on_dark` flag, applied only at the TOTAL row. Numbers/logic
+unchanged — reconciliation still 41/41 vs ICE's own change column, 0
+mismatch. Verified visually via WhatsApp render before commit. See
+[[project-prelim-oi-report]] for the system this belongs to.
+
 ## 2026-08-17 — stray uncommitted files cleaned up; bad hv30/hv60 rewrite discarded
 
 **What happened:** repo had 14 uncommitted items sitting in the working tree,
