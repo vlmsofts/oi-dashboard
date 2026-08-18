@@ -240,6 +240,13 @@ AMBER  = '#EF9F27'   # key highlight values
 OI_COL     = '#1a2535'
 OI_COL_TOT = '#c8d8e8'   # open interest on the dark totals row
 
+# GREEN/RED are tuned for contrast on WHITE rows. The totals row sits on DKROW
+# (#2c3e50, a dark slate) where those same hexes go muddy -- brighten both for
+# that row only, same reasoning as OI_COL_TOT above.
+GREEN_TOT = '#4ade80'
+RED_TOT   = '#f87171'
+LGRAY_TOT = '#c8d0d8'
+
 
 def fc(v):
     if v is None:
@@ -247,9 +254,11 @@ def fc(v):
     return f'+{v:,}' if v > 0 else f'{v:,}'
 
 
-def cc(v):
+def cc(v, on_dark=False):
     if v is None:
-        return LGRAY
+        return LGRAY_TOT if on_dark else LGRAY
+    if on_dark:
+        return GREEN_TOT if v > 0 else RED_TOT if v < 0 else LGRAY_TOT
     return GREEN if v > 0 else RED if v < 0 else LGRAY
 
 
@@ -286,9 +295,9 @@ def build_html(report_date, built, baselines, src_name):
                     padding:9px 16px;align-items:center;">
           <div style="font-size:14px;font-weight:700;color:{GOLD};letter-spacing:1px;">TOTAL</div>
           <div style="font-size:16px;font-weight:700;color:{OI_COL_TOT};text-align:right;">{d['total_oi']:,}</div>
-          <div style="font-size:15px;font-weight:700;color:{cc(t['DoD'])};text-align:right;">{fc(t['DoD'])}{star('DoD')}</div>
-          <div style="font-size:15px;font-weight:700;color:{cc(t['WoW'])};text-align:right;">{fc(t['WoW'])}{star('WoW')}</div>
-          <div style="font-size:15px;font-weight:700;color:{cc(t['MoM'])};text-align:right;">{fc(t['MoM'])}{star('MoM')}</div>
+          <div style="font-size:15px;font-weight:700;color:{cc(t['DoD'], True)};text-align:right;">{fc(t['DoD'])}{star('DoD')}</div>
+          <div style="font-size:15px;font-weight:700;color:{cc(t['WoW'], True)};text-align:right;">{fc(t['WoW'])}{star('WoW')}</div>
+          <div style="font-size:15px;font-weight:700;color:{cc(t['MoM'], True)};text-align:right;">{fc(t['MoM'])}{star('MoM')}</div>
         </div>"""
 
         # Each commodity is a self-contained card; the cards tile 2-up so the
