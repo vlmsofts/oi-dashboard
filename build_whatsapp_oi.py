@@ -12,7 +12,7 @@ Requires: playwright (pip install playwright && playwright install chromium)
 Run from Desktop: Open interest dashboard folder
 """
 
-import csv, json, pathlib, argparse
+import csv, json, pathlib, argparse, re
 from datetime import datetime, date, timedelta
 
 BASE_DIR    = pathlib.Path(__file__).parent
@@ -20,22 +20,62 @@ DATA_DIR    = BASE_DIR / 'data'
 OI_FILE     = DATA_DIR / 'oi_data.csv'
 OPT_FILE    = DATA_DIR / 'options_oi.csv'
 
-# Ticker orders defined in TICKER_ORDERS dict in load_futures()
+# Row order comes from first_notice (see load_futures._sort_key), NOT from a
+# generic-ticker list -- rows are keyed by dated contract, so a generic's position
+# is meaningless. TICKER_ORDERS below is retained only as a reference of the
+# month cycle each commodity lists.
 
 _MONTH_MAP = {
     'JAN':'Jan','FEB':'Feb','MAR':'Mar','APR':'Apr','MAY':'May','JUN':'Jun',
     'JUL':'Jul','AUG':'Aug','SEP':'Sep','OCT':'Oct','NOV':'Nov','DEC':'Dec',
 }
 
-def _fmt_cont(tk, fnd=''):
-    """Format ticker label for display. CTJUL1 -> 'Jul 1 \'26', CTOCT2 -> 'Oct 2 \'26'"""
-    suffix = tk.replace(' Comdty','')
-    suffix = suffix[2:]  # strip CT/KC/CC/SB
-    slot = suffix[-1]
-    month_code = suffix[:-1]
-    month = _MONTH_MAP.get(month_code, month_code)
-    yr = f" '{fnd[2:4]}" if fnd and len(fnd) >= 4 else ''
-    return f'{month} {slot}{yr}'
+_MONTHS_NUM = {1:'JAN',2:'FEB',3:'MAR',4:'APR',5:'MAY',6:'JUN',
+               7:'JUL',8:'AUG',9:'SEP',10:'OCT',11:'NOV',12:'DEC'}
+
+# Baseline offsets in TRADING SESSIONS present in oi_data.csv -- not calendar days,
+# so holidays never silently skew a window.
+WINDOWS = [('DoD', 1), ('WoW', 5), ('MoM', 21)]
+
+
+def contract_key(commodity, first_notice, last_trade):
+    """Map a row to its DATED contract (e.g. 'OCT26') from the row's own dates.
+
+    Identical rule to build_prelim_oi.py's contract_key(), which reconciles 36/36
+    against ICE's published change column. The anchor is commodity-specific and is
+    NOT interchangeable:
+      * CT/CC/KC -- last_trade falls IN the delivery month.
+      * SB       -- cash-settle, LTD falls the month BEFORE delivery (SBOCT1
+                    expires 09-30), so first_notice is the correct anchor.
+
+    Why this exists at all: oi_data.csv stores rows under GENERIC tickers, which are
+    pointers that re-aim at a different dated contract on roll days (verified: KCJUL1
+    pointed at Jul-26 on 2026-07-20 and Jul-27 on 2026-07-21). Differencing a generic
+    across a roll subtracts two different instruments -- Bloomberg's own KCN7 history
+    shows the true flow was -46 while the stored oi_chg column reported +4,817.
+    Keying by dated contract removes that class of error entirely.
+    """
+    anchor = first_notice if commodity == 'SB' else last_trade
+    if not anchor:
+        return None
+    try:
+        d = datetime.strptime(anchor, '%Y-%m-%d')
+    except ValueError:
+        return None
+    return f'{_MONTHS_NUM[d.month]}{d.strftime("%y")}'
+
+
+def _fmt_cont(key):
+    """Dated contract key -> display label. 'OCT26' -> "Oct '26"."""
+    if not key:
+        return '—'
+    return f"{_MONTH_MAP.get(key[:3], key[:3])} '{key[3:]}"
+
+
+def _generation(contract):
+    """Trailing slot digit of a month-specific generic (CCMAY1 -> 1)."""
+    m = re.search(r'(\d+)$', contract or '')
+    return int(m.group(1)) if m else 99
 
 
 # Ticker order per commodity
@@ -49,34 +89,106 @@ TICKER_ORDERS = {
 COMM_NAMES = {'CT': 'COTTON', 'KC': 'COFFEE', 'CC': 'COCOA', 'SB': 'SUGAR'}
 
 
+def _int_or_none(v):
+    """Blank/None/non-numeric -> None. Live data DOES carry blank open_int on a
+    newly-listed back month (observed KCJUL2 on 2026-07-21, no OI and no dates),
+    so every read of this column must tolerate it rather than assume 0."""
+    if v in (None, '', 'None'):
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def load_futures(comm='CT'):
-    """Load today's futures OI rows for a given commodity, sorted by first notice date."""
+    """Load the latest session's futures rows for a commodity, with DoD/WoW/MoM
+    computed per DATED contract (see contract_key).
+
+    Returns (rows, agg_oi, agg_chg_by_window, partial_by_window, last_date).
+    A contract with no baseline in a window gets None for that window (renders as
+    a dash) -- e.g. a back month listed more recently than 21 sessions ago. The
+    window total then sums only the contracts that DO have a baseline and is
+    flagged partial, rather than being blanked over one 1-lot back month.
+    """
     rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
     last_date = max(r['date'] for r in rows)
+
+    # Sessions present for THIS commodity -- baselines walk back in trading
+    # sessions, so exchange holidays can never skew a window.
+    sessions = sorted({r['date'] for r in rows if r['commodity'] == comm})
+    prior = [s for s in sessions if s < last_date]
+    baselines = {}
+    for label, n in WINDOWS:
+        baselines[label] = prior[-n] if len(prior) >= n else None
+
+    # Index baseline sessions by dated contract. On a roll day two generics can
+    # briefly map to the same dated contract; keep the LOWER generation (the nearer
+    # generic is the live contract the label refers to).
+    wanted = {d for d in baselines.values() if d}
+    base_idx = {}
+    for r in rows:
+        if r['commodity'] != comm or r['date'] not in wanted:
+            continue
+        k = contract_key(comm, r.get('first_notice',''), r.get('last_trade',''))
+        if not k:
+            continue
+        slot = (r['date'], k)
+        cur = base_idx.get(slot)
+        if cur is None or _generation(r['contract']) < _generation(cur['contract']):
+            base_idx[slot] = r
+
     today = [r for r in rows if r['date'] == last_date and r['commodity'] == comm]
     result = []
     for r in today:
-        tk = r['contract']
-        fnd = r.get('first_notice','')
+        oi = _int_or_none(r.get('open_int'))
+        if oi is None:
+            # No OI reported (newly-listed month Bloomberg has not populated yet).
+            # Skipped rather than shown as 0, which would be a phantom row and
+            # would understate nothing but mislead on the chain's contents.
+            continue
+        key = contract_key(comm, r.get('first_notice',''), r.get('last_trade',''))
+        if key is None:
+            # OI present but no FND/LTD to date it (8,624 such rows exist in the
+            # 2008-era history; none on recent sessions). Without dates the row
+            # cannot be identified, labelled, or compared to any baseline -- it
+            # would render as a nameless '—' whose OI still inflated the total.
+            # Dropped rather than shown as an unattributable number.
+            continue
+        chg = {}
+        for label, _ in WINDOWS:
+            bd = baselines[label]
+            brow = base_idx.get((bd, key)) if (bd and key) else None
+            bo = _int_or_none(brow.get('open_int')) if brow else None
+            chg[label] = (oi - bo) if bo is not None else None
         result.append({
-            'ticker':   tk,
-            'cont':     _fmt_cont(tk, fnd),
-            'oi':       int(r['open_int'])   if r.get('open_int')   else 0,
-            'oi_chg':   int(r['oi_chg'])     if r.get('oi_chg') and r['oi_chg'] not in ('','None') else 0,
-            'settle':   float(r['settle'])   if r.get('settle')     else 0,
-            'fnd':      fnd,
+            'key':      key,
+            'cont':     _fmt_cont(key),
+            'oi':       oi,
+            'chg':      chg,
+            'settle':   float(r['settle']) if r.get('settle') not in (None,'','None') else 0,
+            'fnd':      r.get('first_notice',''),
         })
-    # Sort by first notice date when available; fall back to TICKER_ORDERS position
-    order = TICKER_ORDERS.get(comm, [])
+
+    # Chronological by first notice (the delivery order traders read). Rows lacking
+    # an FND sort last by delivery derived from the dated key, so ordering never
+    # depends on the generic ticker.
     def _sort_key(x):
         if x['fnd']:
-            return (0, x['fnd'], 0)
-        pos = order.index(x['ticker']) if x['ticker'] in order else 999
-        return (1, '', pos)
+            return (0, x['fnd'], '')
+        k = x['key'] or ''
+        if len(k) == 5:
+            mon = next((n for n, v in _MONTHS_NUM.items() if v == k[:3]), 99)
+            return (1, f'20{k[3:]}-{mon:02d}', '')
+        return (2, '', x['cont'])
     result.sort(key=_sort_key)
-    agg_oi  = sum(r['oi']     for r in result)
-    agg_chg = sum(r['oi_chg'] for r in result)
-    return result, agg_oi, agg_chg, last_date
+
+    agg_oi  = sum(r['oi'] for r in result)
+    agg_chg = {lab: sum(r['chg'][lab] for r in result if r['chg'][lab] is not None)
+               for lab, _ in WINDOWS}
+    partial = {lab: any(r['chg'][lab] is None for r in result)
+               for lab, _ in WINDOWS}
+    return result, agg_oi, agg_chg, partial, last_date
 
 def _next_bday(d_str):
     """Next business day (weekend-only shift, mirrors vlm_master_fetch.py's convention).
@@ -145,7 +257,7 @@ def load_options_top10(comm='CT', target_date=None):
     return parsed[:10], last_date, stale
 
 
-def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
+def build_html(futures, agg_oi, agg_chg, partial, opts, as_of, comm='CT'):
     GREEN  = '#16a34a'
     RED    = '#dc2626'
     GOLD   = '#E8C547'
@@ -165,36 +277,56 @@ def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
         return s
 
     def color_chg(v):
+        # None = no baseline in that window (contract listed more recently than the
+        # lookback); renders as a neutral dash, never colored as a zero change.
+        if v is None: return DIM
         if v > 0: return GREEN
         if v < 0: return RED
         return DIM
 
     # ── Futures rows ────────────────────────────────────────────────
-    FCOLS = '190px 110px 175px 148px 165px 260px'
+    # One CONTRACT column (dated, e.g. "Oct '26") replaces the old TICKER + FUT CONT
+    # pair: the generic ticker was a pointer that re-aimed on roll days, which is
+    # exactly what made a generic-keyed delta wrong. Freed width funds WoW/MoM at
+    # the same font size; 1ST NOTICE drops the century ('26-10-01') for the rest.
+    FCOLS = '150px 168px 136px 136px 136px 128px 154px'
+    def _short_fnd(d):
+        return d[2:] if d and len(d) == 10 else (d or '—')
     fut_rows = ''
     for i, r in enumerate(futures):
         bg = ROW1 if i % 2 == 0 else ROW2
-        chg_color = color_chg(r['oi_chg'])
         oi_color  = AMBER if r['oi'] >= 50000 else GREEN if r['oi'] >= 10000 else TEXT
+        chg_cells = ''.join(
+            f'<div style="font-size:20px;font-weight:700;color:{color_chg(r["chg"][lab])};'
+            f'text-align:right;">{fc(r["chg"][lab])}</div>'
+            for lab, _ in WINDOWS)
         fut_rows += f"""
         <div style="display:grid;grid-template-columns:{FCOLS};
                     background:{bg};padding:7px 16px;align-items:center;border-bottom:1px solid #e2e8f0;">
-          <div style="font-size:20px;font-weight:700;color:{TICKER};">{r['ticker']}</div>
-          <div style="font-size:18px;color:{DIM};text-align:right;">{r['cont']}</div>
+          <div style="font-size:20px;font-weight:700;color:{TICKER};">{r['cont']}</div>
           <div style="font-size:20px;font-weight:700;color:{oi_color};text-align:right;">{r['oi']:,}</div>
-          <div style="font-size:20px;font-weight:700;color:{chg_color};text-align:right;">{fc(r['oi_chg'])}</div>
+          {chg_cells}
           <div style="font-size:20px;color:{TEXT};text-align:right;">{r['settle']:.2f}</div>
-          <div style="font-size:18px;color:{DIM};text-align:right;">{r['fnd'] or '—'}</div>
+          <div style="font-size:18px;color:{DIM};text-align:right;">{_short_fnd(r['fnd'])}</div>
         </div>"""
     # ── Totals bar ──────────────────────────────────────────────────
-    tot_color = color_chg(agg_chg)
+    # "TOTAL (SHOWN)": this sums the months DISPLAYED, which is not the exchange
+    # aggregate -- Bloomberg's SB chain on 2026-08-25 carried 4 further months
+    # (Oct28/Mar29/May29/Jul29, 11,477 lots) beyond the 8 shown. Labelled so the
+    # number cannot be misread as Aggr Open Int.
+    # A window whose total excludes a contract with no baseline is marked with a
+    # trailing asterisk rather than blanked -- one 1-lot back month must not wipe
+    # out the most-watched number on the card.
+    tot_cells = ''.join(
+        f'<div style="font-size:20px;font-weight:700;color:{color_chg(agg_chg[lab])};'
+        f'text-align:right;">{fc(agg_chg[lab])}{"*" if partial.get(lab) else ""}</div>'
+        for lab, _ in WINDOWS)
     fut_rows += f"""
         <div style="display:grid;grid-template-columns:{FCOLS};
                     background:#1e293b;padding:8px 16px;align-items:center;">
-          <div style="font-size:17px;font-weight:700;color:#f1f5f9;letter-spacing:1px;">TOTAL</div>
-          <div></div>
+          <div style="font-size:15px;font-weight:700;color:#f1f5f9;letter-spacing:1px;">TOTAL (SHOWN)</div>
           <div style="font-size:20px;font-weight:700;color:{GOLD};text-align:right;">{agg_oi:,}</div>
-          <div style="font-size:20px;font-weight:700;color:{tot_color};text-align:right;">{fc(agg_chg)}</div>
+          {tot_cells}
           <div></div>
           <div></div>
         </div>"""
@@ -243,10 +375,11 @@ def build_html(futures, agg_oi, agg_chg, opts, as_of, comm='CT'):
 </div>
 
 <!-- Futures header -->
-<div style="display:grid;grid-template-columns:190px 110px 175px 148px 165px 260px;
+<div style="display:grid;grid-template-columns:{FCOLS};
             background:{HDR};padding:5px 16px;border-bottom:1px solid #1e3a5f;">
+  <div style="font-size:16px;font-weight:700;color:#94a3b8;text-align:left;letter-spacing:.6px;">CONTRACT</div>
   {''.join(f'<div style="font-size:16px;font-weight:700;color:#94a3b8;text-align:right;letter-spacing:.6px;">{h}</div>'
-           for h in ['TICKER','FUT CONT','OPEN INT','OI CHG','SETTLE PX','1ST NOTICE'])}
+           for h in ['OPEN INT','DOD','WOW','MOM','SETTLE PX','1ST NOTICE'])}
 </div>
 {fut_rows}
 
@@ -346,12 +479,12 @@ def build_whatsapp_oi(output_base='output'):
 
     saved = []
     for comm in ['CT', 'KC', 'CC', 'SB']:
-        futures, agg_oi, agg_chg, _ = load_futures(comm)
+        futures, agg_oi, agg_chg, partial, _ = load_futures(comm)
         if not futures:
             print(f'  No futures data for {comm} — skipping')
             continue
         opts, _, _ = load_options_top10(comm, target_date=opt_target)
-        html = build_html(futures, agg_oi, agg_chg, opts, as_of, comm)
+        html = build_html(futures, agg_oi, agg_chg, partial, opts, as_of, comm)
         png_path = out_dir / f'OI_Monitor_{comm}_{as_of}.png'
         result = render_png(html, png_path)
         if result:
@@ -410,14 +543,14 @@ def main():
         opt_target = _next_bday(as_of_date)              # options release date
         site_html = ''
         for comm in ['CT', 'KC', 'CC', 'SB']:
-            futures, agg_oi, agg_chg, _ = load_futures(comm)
+            futures, agg_oi, agg_chg, partial, _ = load_futures(comm)
             if not futures:
                 # Mirror build_whatsapp_oi()'s skip: no futures data that day (holiday/
                 # gap) means no PNG was generated/sent for this commodity either, so the
                 # site post must not show an empty "TOTAL 0" section for it.
                 continue
             opts, _, _ = load_options_top10(comm, target_date=opt_target)
-            site_html += build_html(futures, agg_oi, agg_chg, opts, as_of_date, comm)
+            site_html += build_html(futures, agg_oi, agg_chg, partial, opts, as_of_date, comm)
         post_to_vlm(
             title    = f'Open Interest Monitor — {as_of_date}',
             content  = site_html,
