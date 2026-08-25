@@ -389,10 +389,13 @@ def build_html(futures, agg_oi, agg_chg, partial, opts, as_of, comm='CT'):
 </div>
 
 <!-- Options header -->
-<div style="display:grid;grid-template-columns:252px 130px 62px 164px 152px 142px 146px;
+<div style="display:grid;grid-template-columns:{OCOLS};
             background:{HDR};padding:5px 16px;border-bottom:1px solid #1e3a5f;">
-  {''.join(f'<div style="font-size:16px;font-weight:700;color:#94a3b8;text-align:right;letter-spacing:.6px;">{h}</div>'
-           for h in ['TICKER','MONTH','P/C','OPEN INT','OI CHG','SETTLE','VOLUME'])}
+  {''.join(f'<div style="font-size:16px;font-weight:700;color:#94a3b8;'
+           f'text-align:{a};letter-spacing:.6px;">{h}</div>'
+           for h, a in [('TICKER','left'), ('MONTH','right'), ('P/C','center'),
+                        ('OPEN INT','right'), ('OI CHG','right'),
+                        ('SETTLE','right'), ('VOLUME','right')])}
 </div>
 {opt_rows}
 
