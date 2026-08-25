@@ -1,5 +1,52 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-25 — OI cards: dated-contract labels + WoW/MoM (commit ac87cf7)
+
+**Decided:** the futures table on the WhatsApp/site cards keys on the DATED
+contract (`Oct '26`), derived from each row's own FND/LTD via the same rule as
+`build_prelim_oi.py:contract_key()` (anchor `last_trade` for CT/CC/KC,
+`first_notice` for SB — cash-settle, LTD lands the month BEFORE delivery). The
+old TICKER + FUT CONT pair is gone; WoW (T-5) and MoM (T-21) columns added,
+walked back in TRADING SESSIONS not calendar days.
+
+**Why — the load-bearing insight:** generic tickers are POINTERS that re-aim at
+a different real contract on roll days (~31 events/yr across CT/KC/CC/SB), so
+differencing a generic subtracts two different instruments. Proven on real data:
+2026-07-21 KCJUL1 moved Jul-26 -> Jul-27 and the stored `oi_chg` column reported
+**+4,817 on a 4,899-lot contract**. Lou pulled Bloomberg KCN7 history (4,945 ->
+4,899) which independently confirms the true flow was **-46**. DoD is therefore
+now COMPUTED like WoW/MoM instead of read from `oi_chg` — verified identical to
+the stored column on every non-roll session (1,166/1,167 over 30 sessions).
+
+**TOTAL renamed "TOTAL (SHOWN)"** (Lou's choice of 3 options). A Bloomberg SB1
+screenshot showed the chain carries 12 months (Aggr OI 1,222,053) vs the 8 we
+display (1,210,576) — the 11,477 gap is Oct28/Mar29/May29/Jul29, which we do not
+fetch. The card's total was ALWAYS a subtotal; the label now says so. Rejected:
+leaving it ambiguous, and fetching the missing months (separate job, own blast
+radius). **Do not "fix" the 11,477 discrepancy — it is expected.**
+
+**Two bugs caught in preview, not in production** (this is why the render-before-
+commit step exists — the 09:35 run is `pythonw.exe`, no console, so a crash is a
+SILENT no-delivery): (1) `color_chg()` took `None` from a missing baseline and
+threw TypeError — CT/KC had already rendered, so it would have shipped 2 cards
+and no report; (2) a row with OI but BLANK dates rendered as a nameless `—` whose
+OI still inflated the total — 8,624 such rows exist in the 2008-era history.
+Both now guarded; rows that cannot be dated are dropped.
+
+**Verification:** SB matched a Bloomberg screenshot 8/8 exact; 2026-07-21 replayed
+(KC Jul '27 now -46, blank-OI row skipped, no crash); independent Sonnet audit
+found no CRITICAL/MAJOR (it caught bug 2, which my own testing missed); layout
+1040px vs 1080px canvas. Trigger/delivery untouched — same filenames, folder,
+`as_of`, commodity order, freshness guard, send/post logic.
+
+**Known-and-accepted:** a contract younger than its window shows `—` (CC Jul '28
+MoM today); a total excluding such a contract is summed and marked `*`.
+
+**Next:** options panel still renders `Oct 2026` while futures now render
+`Oct '26` — labeling uniformity is a separate task. Note options carry SERIAL
+months futures do not (SB Jan/Sep/Nov/Dec), so the two month SETS will still
+differ legitimately after the format is unified. See [[project-oi-whatsapp-autosend]].
+
 ## 2026-08-25 — prelim watcher "failure": blank subject, not a broken watcher (commit 95e8423)
 
 **Worked on / completed:** Lou reported the prelim OI watcher failed on the
