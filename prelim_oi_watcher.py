@@ -33,6 +33,12 @@ LOG_FILE   = BASE_DIR / 'prelim_oi_watcher.log'
 # type on a phone. It still has to be present: without a subject filter, ANY unread
 # mail with a CSV attached would trigger a build.
 SUBJECT_TOKEN = 'prelim'
+# Fallback trigger (added 2026-08-25 after a blank-subject send was skipped all
+# morning): unread mail FROM this address also counts, but ONLY if it carries the
+# ICE prelim CSV itself (filename check) — so ordinary self-sent mail with other
+# CSVs attached can never trigger a build.
+FALLBACK_SENDER = 'thecottonkid@gmail.com'
+PRELIM_CSV_PREFIX = 'preliminaryopeninterest'
 IMAP_HOST, IMAP_PORT = 'imap.gmail.com', 993
 
 
@@ -75,17 +81,35 @@ def connect():
     return m
 
 
+def _has_prelim_csv(msg):
+    """True if any attachment filename is the ICE prelim CSV (e.g.
+    'PreliminaryOpenInterestFutures (6).csv')."""
+    for part in msg.walk():
+        fn = part.get_filename() or ''
+        if fn.lower().startswith(PRELIM_CSV_PREFIX) and fn.lower().endswith('.csv'):
+            return True
+    return False
+
+
 def find_messages(m):
-    """Unread messages whose subject contains the trigger token."""
+    """Unread messages whose subject contains the trigger token, plus the
+    blank-subject fallback: unread mail from FALLBACK_SENDER that actually
+    carries the ICE prelim CSV."""
     m.select('INBOX')
     status, data = m.uid('search', None, f'(UNSEEN SUBJECT "{SUBJECT_TOKEN}")')
-    if status != 'OK' or not data[0]:
-        return []
+    uids = list(data[0].split()) if status == 'OK' and data[0] else []
+    st_fb, data_fb = m.uid('search', None, f'(UNSEEN FROM "{FALLBACK_SENDER}")')
+    fb = [u for u in (data_fb[0].split() if st_fb == 'OK' and data_fb[0] else [])
+          if u not in uids]
     out = []
-    for uid in data[0].split():
+    for uid in uids + fb:
         st, raw = m.uid('fetch', uid, '(RFC822)')
-        if st == 'OK' and raw and raw[0]:
-            out.append((uid, email.message_from_bytes(raw[0][1])))
+        if st != 'OK' or not raw or not raw[0]:
+            continue
+        msg = email.message_from_bytes(raw[0][1])
+        if uid in fb and not _has_prelim_csv(msg):
+            continue  # self-sent mail without the prelim CSV — not a trigger
+        out.append((uid, msg))
     return out
 
 
