@@ -42,6 +42,14 @@ found no CRITICAL/MAJOR (it caught bug 2, which my own testing missed); layout
 **Known-and-accepted:** a contract younger than its window shows `—` (CC Jul '28
 MoM today); a total excluding such a contract is summed and marked `*`.
 
+**Follow-up (commit 6e27575):** Lou spotted the options TICKER header floating at
+the right edge instead of over its data. Cause: options DATA rows render ticker
+left-aligned and P/C centered, but the header loop right-aligned all 7 labels
+uniformly — worst on TICKER since its 252px column gave the label the most room
+to drift. Fixed both, and replaced the options header's hardcoded widths with the
+shared `OCOLS` var (they were a duplicate copy of the row widths — exactly how a
+header silently drifts out of sync). Futures header already used its `FCOLS` var.
+
 **Options panel: DELIBERATELY LEFT ALONE (Lou, 2026-08-25).** It renders
 `Oct 2026` (straight from `options_oi.csv:contract_month`) while futures now
 render `Oct '26`. Considered and REJECTED as not worth the change — the panel

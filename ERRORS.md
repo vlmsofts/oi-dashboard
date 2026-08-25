@@ -3,6 +3,41 @@
 > Log approaches that took >2 attempts or a user correction. Check this before
 > suggesting approaches to similar problems.
 
+## 2026-08-25 — "Watcher failed" that was actually a missed trigger
+
+**What didn't work:** treating a reported prelim-watcher failure as a watcher/
+scheduler/credential problem. The log was full of clean "no unread PRELIM OI
+messages" polls and Task Scheduler showed exit 0 — which is EXACTLY what a
+missed trigger looks like, not proof of health.
+
+**What worked instead:** read the MAILBOX, not the log. A read-only IMAP listing
+showed the email had arrived on time with the CSV attached and an **empty
+subject**, so the `(UNSEEN SUBJECT "prelim")` search never matched it.
+
+**Note for next time:** for any "the watcher didn't fire" report, list the source
+mailbox/folder FIRST and confirm the trigger condition actually matched. A green
+log only proves the poll ran, never that the input was seen.
+
+## 2026-08-25 — Two bugs that only a full render would catch
+
+**What didn't work:** verifying a card change by unit-testing the data layer.
+`load_futures()` returned perfect numbers for all 4 commodities while
+`build_html()` was still broken: `color_chg()` threw TypeError on the `None`
+from a missing baseline. CT and KC had already written PNGs, so the failure was
+PARTIAL — 2 cards and no report, and under `pythonw.exe` (no console) it would
+have been silent at 09:35.
+
+**Also missed by my own testing:** a row with OI but BLANK dates rendered as a
+nameless `—` row whose OI still inflated the total (8,624 such rows exist in the
+2008-era history). Found by an independent Sonnet audit, not by me — my crash
+replay only covered blank OI, not blank DATES.
+
+**Note for next time:** for anything that renders, ALWAYS generate the actual
+image before committing — data-layer tests cannot catch formatter crashes. And
+when enumerating messy-data cases, treat each nullable column as an INDEPENDENT
+axis (blank OI, blank dates, blank both), not one "bad row" case. Spawn a
+second-opinion audit on anything unattended; it caught what I missed.
+
 ## 2026-07-15 — Which options date was the "phantom" (07-06 vs 07-03)
 
 **What didn't work:** When told "clean the 07/03," I initially planned to delete 07-03 —
