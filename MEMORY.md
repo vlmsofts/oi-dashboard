@@ -1,5 +1,34 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-25 — prelim watcher "failure": blank subject, not a broken watcher (commit 95e8423)
+
+**Worked on / completed:** Lou reported the prelim OI watcher failed on the
+morning of 2026-08-25. It hadn't — Task Scheduler fired normally (last run
+05:25, exit 0) and the log showed clean polls. The email itself (04:57, CSV
+`PreliminaryOpenInterestFutures (6).csv` attached) had an **empty subject**, so
+the `(UNSEEN SUBJECT "prelim")` search never matched it. Lesson: a healthy log
+full of "no unread PRELIM OI messages" is exactly what a missed trigger looks
+like — check the mailbox itself (read-only IMAP listing) before suspecting the
+watcher, scheduler, creds, or Twilio.
+
+**Recovery:** processed the email manually through the watcher's own functions
+(import `prelim_oi_watcher`, target the UID): built session 2026-08-24,
+reconciled 36/36 vs ICE's change column, R2 upload + WhatsApp HTTP 201, marked
+read only after the successful send — identical semantics to the automated path.
+
+**Decision — fallback trigger added (95e8423, pushed):** unread mail FROM
+`thecottonkid@gmail.com` now also triggers, but ONLY if an attachment filename
+starts with `PreliminaryOpenInterest` and ends `.csv`. The filename gate is
+load-bearing: Lou self-sends other mail (e.g. "CCF Pipeline") that must never
+start a build; verified against the real mailbox that the blank-subject prelim
+matches and the CCF mail is rejected, plus a `--dry-run` with no false
+triggers. **Rejected:** matching any unseen mail with any CSV (too loose) and
+leaving behavior as-is with "just remember the subject" (already failed once).
+Subject-token path unchanged. See [[project-prelim-oi-report]].
+
+**Next session:** nothing pending here; first automated exercise of the
+fallback will be whenever Lou next sends a subject-less prelim.
+
 ## 2026-08-18 — prelim OI TOTAL row contrast fix (commit 67d1f93)
 
 Lou flagged the DoD/WoW/MoM figures on each commodity's TOTAL row as hard to
