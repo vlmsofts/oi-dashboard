@@ -42,10 +42,12 @@ found no CRITICAL/MAJOR (it caught bug 2, which my own testing missed); layout
 **Known-and-accepted:** a contract younger than its window shows `—` (CC Jul '28
 MoM today); a total excluding such a contract is summed and marked `*`.
 
-**Next:** options panel still renders `Oct 2026` while futures now render
-`Oct '26` — labeling uniformity is a separate task. Note options carry SERIAL
-months futures do not (SB Jan/Sep/Nov/Dec), so the two month SETS will still
-differ legitimately after the format is unified. See [[project-oi-whatsapp-autosend]].
+**Options panel: DELIBERATELY LEFT ALONE (Lou, 2026-08-25).** It renders
+`Oct 2026` (straight from `options_oi.csv:contract_month`) while futures now
+render `Oct '26`. Considered and REJECTED as not worth the change — the panel
+reads correctly as-is. Do NOT "fix" this mismatch as tidy-up in a later session.
+Had it been unified, the month SETS would still differ legitimately, since
+options carry serial months with no future of their own (SB Jan/Sep/Nov/Dec).
 
 ## 2026-08-25 — prelim watcher "failure": blank subject, not a broken watcher (commit 95e8423)
 
