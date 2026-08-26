@@ -1,4 +1,22 @@
 # railway.prelim.toml — Railway service config for the prelim OI cron worker
+#
+# !! NOT AUTHORITATIVE AS OF 2026-08-26 !!
+# Railway's Config-as-Code did NOT apply this file even with the Config Path set
+# to /railway.prelim.toml. Proof: deploy 438215a7 reported SUCCESS while having
+# built via RAILPACK from requirements.txt (flask+gunicorn) and booted
+# `Starting gunicorn 26.2.0 ... Listening at http://0.0.0.0:8080` — i.e. a copy
+# of the DASHBOARD web app, not this watcher. No Playwright, no Chromium.
+# Railway called it SUCCESS because gunicorn started.
+#
+# Config-as-Code is deprecated (dies 2026-12-01), so rather than fight it the
+# settings below were set DIRECTLY on the service and are what actually govern:
+#   builder=DOCKERFILE, dockerfilePath=Dockerfile.prelim,
+#   startCommand="python prelim_oi_watcher.py",
+#   cronSchedule="*/5 7-13 * * 1-5", restartPolicyType=NEVER
+#
+# This file is kept ONLY as documentation of intent. Editing it changes NOTHING.
+# Change the service settings in the Railway dashboard/API instead.
+# (Note restartPolicyType is an UPPERCASE enum in the API: NEVER, not "never".)
 # (prelim_oi_watcher.py). Separate service from the main OI dashboard (which
 # uses railway.json/Procfile + nixpacks) -- point THIS service's Root
 # Directory / config path at this file in the Railway dashboard when creating

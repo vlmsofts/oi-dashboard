@@ -29,7 +29,29 @@ nine. Without it IMAP login fails while everything else looks correctly set.
 
 Settings -> Source: GitHub repo `vlmsofts/oi-dashboard`, branch `main`.
 
-## 3. Point it at the right config (REQUIRED)
+## 3. Build settings — SET DIRECTLY ON THE SERVICE, NOT VIA CONFIG FILE
+
+DONE 2026-08-26 via the Railway API. Config-as-Code did NOT work: with Config
+Path set to /railway.prelim.toml, deploy 438215a7 still built via RAILPACK from
+requirements.txt and booted gunicorn on :8080 — a copy of the DASHBOARD web app,
+no Playwright, no Chromium — and Railway reported it SUCCESS because gunicorn
+started. Config-as-Code is deprecated (dies 2026-12-01) so it was not worth
+fighting.
+
+Authoritative settings, set on the service itself:
+  builder            = DOCKERFILE
+  dockerfilePath     = Dockerfile.prelim
+  startCommand       = python prelim_oi_watcher.py
+  cronSchedule       = */5 7-13 * * 1-5
+  restartPolicyType  = NEVER          (UPPERCASE enum in the API)
+  watchPatterns      = []             (cleared; had been "Dockerfile.prelim",
+                                       which would have blocked redeploys on
+                                       any change to the .py files)
+
+railway.prelim.toml is kept as documentation of intent only. EDITING IT CHANGES
+NOTHING.
+
+## 3b. OLD INSTRUCTIONS (superseded, kept for context)
 
 The repo root already contains railway.json + Procfile for the EXISTING `web`
 dashboard service (nixpacks/gunicorn). Railway reads railway.json/railway.toml
