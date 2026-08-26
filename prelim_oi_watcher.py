@@ -136,10 +136,17 @@ def build(csv_path):
     """Run the builder as a subprocess so its own validation/exit codes govern.
     Returns (ok, output).
 
-    Timeout is kept safely under the Task Scheduler ExecutionTimeLimit (10 min) so
-    a slow build is caught HERE, with a log line, rather than being killed by the
-    scheduler with no trace. A timeout returns ok=False like any other failure, so
-    the email stays unread and the next 5-minute poll retries it.
+    Timeout is kept safely under the Task Scheduler ExecutionTimeLimit (20 min,
+    raised from 10 on 2026-08-26) so a slow build is caught HERE, with a log line,
+    rather than being killed by the scheduler with no trace. A timeout returns
+    ok=False like any other failure, so the email stays unread and the next
+    5-minute poll retries it.
+
+    The 10-min limit was NOT enough: on 2026-08-26 a build that normally takes 4s
+    took 306s under machine load. The build itself finished and wrote PNG+XLSX,
+    but the scheduler killed the process during the WhatsApp send (result 267014),
+    so the report was built and never delivered. The budget must cover build+send,
+    not just build.
     """
     try:
         r = subprocess.run(
