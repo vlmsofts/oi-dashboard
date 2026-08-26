@@ -1,5 +1,53 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-26 — DECISION: migrate all repos OFF OneDrive (deferred to a quiet market period)
+
+**Decided (Lou, 2026-08-26):** every repo moves out of the OneDrive sync root to a
+plain local path. GitHub stays the source of truth, Railway runs the services, and
+LOCAL becomes the redundancy layer — inverting today's arrangement where OneDrive
+is doing a redundancy job that GitHub+Railway already do better.
+
+**Why:** OneDrive file-locking is the root cause of the 2026-08-26 09:30 master-fetch
+hang (JOB 2 wedged 22+ min on a 17MB read; identical read took 1s after reboot). It is
+a latent single point of failure under EVERY scheduled job on this box, not just OI.
+
+**NOT a design error, and worth remembering as such:** OneDrive was the ONLY off-machine
+redundancy when this ecosystem started. It earned its place. It became pure downside only
+once 20 repos were on GitHub and services were on Railway — the backup value is now
+duplicated, the locking cost is not. This is outgrowing a tool, not misusing one.
+
+**Timing — deliberate, do NOT opportunistically start this:** Lou's call is to run the
+migration only during a QUIET MARKET PERIOD with a few weeks of runway. It touches every
+repo, every absolute path and 54 scheduled tasks simultaneously; a half-finished migration
+under live markets is far worse than the status quo, which is a KNOWN and now-instrumented
+flaw.
+
+**Measured scope (2026-08-26, verified by scan — not an estimate):**
+  * 20 git repos under `Desktop/`, ALL already have GitHub remotes on `vlmsofts`
+  * 84 hardcoded `OneDrive - VLM Commodities` paths across 63 .py files in 12 repos
+  * Worst offenders: VLM Data (17 hits/11 files), Options_flow_analyzer (16/12),
+    OTEXA DASHBOARD (11/10), CertStocks (10/4), export-sales-repo (9/7)
+  * **54 of 62** VLM scheduled tasks reference a OneDrive path
+  * Cross-repo writer: vlm_master_fetch.py writes into THREE repo trees
+    (Open interest dashboard, CTA MONITOR, + its own) — migration cannot be done
+    one-repo-at-a-time without breaking it mid-flight
+
+**Sequencing agreed:** Tier 1 (make failures loud — see below) lands FIRST and is
+independent of the migration. It is what makes the status quo survivable until the
+window opens. The migration is Tier 2 and supersedes the per-read retry workaround.
+
+**Master fetch defects found while diagnosing (all still OPEN, none actioned):**
+  1. `return 0` is UNCONDITIONAL even when `summary['errors']` is populated — the script
+     is structurally incapable of reporting failure to Task Scheduler. This is WHY exit
+     code 0 lied on 08-26.
+  2. `ExecutionTimeLimit=PT72H` — a hang gets THREE DAYS to squat and block every
+     subsequent daily run. (Compare: prelim job was capped at 10min.)
+  3. All five jobs share ONE try/except — a throw in spreads silently skips macro,
+     signals AND options. No per-job isolation.
+  4. ZERO alerting (grep-confirmed: no twilio/smtp/webhook). `VLM Daily Data Watchdog`
+     runs 17:15 — ~8h after the damage — and does not check oi_data.csv at all.
+
+
 ## 2026-08-26 (later) — OI cards missed: master fetch hung on JOB 2, guard held
 
 **Session summary.** Lou: "o.i. cards never came via whatsapp." Cause was UPSTREAM,
