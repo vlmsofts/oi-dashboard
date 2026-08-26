@@ -1,5 +1,80 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-26 — Prelim OI moved to Railway; gateway-backed baselines
+
+**Session summary.** Two consecutive missed prelim deliveries (08-25, 08-26) with
+DIFFERENT causes. 08-25 was DETECTION (blank subject; only a manual run
+delivered). 08-26 was a KILL: the 05:15 run BUILT the PNG (395,608 bytes) and
+XLSX, then Task Scheduler killed it at 05:25 on the 10-min `ExecutionTimeLimit`
+mid-WhatsApp-send. `LastTaskResult 267014` = scheduler-killed, NOT a script
+error. The log's last line was a normal-looking `XLSX : ...` — **silence read as
+success for two mornings.** Build had gone 4s -> 306s under machine load (9
+python processes, incl. a DUPLICATE `pull_loop.py CC` pair); re-timed later at
+34s total with the screenshot itself 0.2s, so the render code was never at fault.
+
+**Decided:** move the job to a Railway cron service, stateless, reading official
+OI from the gateway instead of a bundled CSV.
+
+**New endpoint** `GET /v1/openinterest/history?from=&to=` (gateway 6ffce45,
+LIVE). Full rows, same field names as `/daily`. Rationale: `/daily` already
+fetched the WHOLE `oi_data.csv` via `github_reader.read_file` and discarded all
+but the newest date — this is the same read with a date filter. **Rejected** a
+per-range payload cache: `MemoryCache.get()` returns None past expiry but NEVER
+evicts, so keying on from/to would mint a permanent entry per range. It now
+reuses read_file's single `github:oi-dashboard/data/oi_data.csv` entry (proven:
+cache keys stayed at 1 across 27 distinct ranges).
+
+**`OI_DATA_SOURCE` defaults to 'local', deliberately.** The Windows job runs the
+file with no env overrides, so the DEFAULT is what runs at 05:00. An agent had
+set it to 'gateway' before the endpoint existed — that would have broken the
+next morning's run (proven: HTTP 400). Railway sets 'gateway' explicitly.
+
+**Gateway swap proven equivalent, not argued:** an adversarial audit diffed all
+4,765 sessions x 36 contracts between modes — ZERO differences including types
+(both paths parse via `csv.DictReader`, so every field is a str). Rendered HTML
+byte-identical bar the footer, which bakes `datetime.now()` and so differs
+between ANY two runs.
+
+**RAILWAY CONFIG-AS-CODE DOES NOT WORK — the trap of the day.** With Config Path
+set to `/railway.prelim.toml`, deploy 438215a7 reported **SUCCESS** while having
+built via RAILPACK from `requirements.txt` (flask+gunicorn, no Playwright, no
+Chromium) and booted `gunicorn ... :8080` — a DUPLICATE OF THE DASHBOARD WEB APP.
+It would never have polled email or built a PNG. Railway called it SUCCESS
+because gunicorn started; only the BUILD LOG revealed it. Config-as-Code is
+deprecated (dies 2026-12-01). Settings are now set DIRECTLY on the service and
+are authoritative: builder=DOCKERFILE, dockerfilePath=Dockerfile.prelim,
+startCommand, cron `*/5 7-13 * * 1-5`, restartPolicyType=NEVER (UPPERCASE enum).
+`railway.prelim.toml` is retained as documentation only — **editing it changes
+nothing.** Image size is the tell: 1.02GB (Playwright) vs 418MB (gunicorn).
+
+Also cleared `watchPatterns`, which had been set to "Dockerfile.prelim" — that is
+a redeploy TRIGGER filter, so changes to the .py files would never have deployed.
+
+**Failure alerts are LOG-ONLY** (Lou's call: "I will be the alert"). A persistent
+send failure would otherwise fire one WhatsApp per 5-min poll. `alert_failure()`
+writes a banner-delimited `DELIVERY FAILURE: <reason>` block. The audit caught
+that two docs still CLAIMED a Twilio alert — the 08-26 trap inverted, with the
+operator waiting on a message that cannot arrive (fixed, 751d319).
+
+**Fonts — reasoned, NOT observed.** The report declares ONE stack,
+`Arial,sans-serif`. Arial does not exist on Linux; Liberation Sans is metrically
+identical (same advance widths) so the fixed-width table cannot reflow;
+`fonts-liberation` is now installed explicitly. Docker and WSL are BOTH ABSENT
+from this machine, so the image has NEVER been built or run locally.
+
+**State at close (2026-08-27 is the live test):** Windows task `VLM Prelim OI
+Watcher` DISABLED (PT20M preserved); Railway `prelim-oi-watcher` live, 12 vars,
+cron 03:00-09:55 ET. Both watchers race the same UNSEEN email and mark `\Seen`
+only after a successful send, so only ONE can deliver. If Railway fails before
+sending, the email stays unread — re-enable Windows and run manually.
+
+**Open / not done:** `/history` with no params returns ~54MB JSON (~5-6s, no
+payload cache) — fine inside the 480s timeout but worth date-bounding later, as
+the prelim needs 22 sessions not 4,767. No retry on the gateway call (traceback
+-> exit 1 -> watcher retries; safe, not graceful). The duplicate `pull_loop.py
+CC` processes are UNTOUCHED and are the likely cause of the 5am contention.
+
+
 ## 2026-08-25 — OI cards: dated-contract labels + WoW/MoM (commit ac87cf7)
 
 **Decided:** the futures table on the WhatsApp/site cards keys on the DATED
