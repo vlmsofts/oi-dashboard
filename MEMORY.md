@@ -71,8 +71,24 @@ sending, the email stays unread — re-enable Windows and run manually.
 **Open / not done:** `/history` with no params returns ~54MB JSON (~5-6s, no
 payload cache) — fine inside the 480s timeout but worth date-bounding later, as
 the prelim needs 22 sessions not 4,767. No retry on the gateway call (traceback
--> exit 1 -> watcher retries; safe, not graceful). The duplicate `pull_loop.py
-CC` processes are UNTOUCHED and are the likely cause of the 5am contention.
+-> exit 1 -> watcher retries; safe, not graceful).
+
+**CLOSED — image trim (~1.02GB is fine, do not chase it).** The idea was to drop
+"the unused headless shell" (272MB). That was BACKWARDS: `p.chromium.launch()`
+(build_prelim_oi.py:453) defaults to headless=True, so the 272MB headless shell
+is the one actually USED and full Chromium (428MB) is the spare. Removing full
+Chromium means abandoning `mcr.microsoft.com/playwright/python:v1.58.0-noble`
+and hand-building an image — reintroducing exactly the browser/library version
+drift the Dockerfile header warns about — to save ~400MB on an image pulled ONCE
+PER BUILD and cached across all 84 daily runs. If container cost ever matters,
+narrow the CRON WINDOW (fewer starts), do not shrink the image.
+
+**`pull_loop` contention — SUSPECT, NOT PROVEN.** Correlation only: 9 python
+processes during the 05:10-05:25 window incl. a DUPLICATE `pull_loop.py CC` pair
+(started 05:37:54 and 05:38:19), and a build that went 4s -> 306s. Re-checked
+same day 07:50: exactly four pull_loops, one per commodity (KC/CC/CT/SB) — clean,
+so the duplicate was TRANSIENT, not a persistent leak. Plausible mechanism, best
+suspect, never demonstrated. Do not record it as the established cause.
 
 
 ## 2026-08-25 — OI cards: dated-contract labels + WoW/MoM (commit ac87cf7)
