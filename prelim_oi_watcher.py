@@ -20,10 +20,15 @@ the Windows Task Scheduler log -- on 2026-08-26 the scheduler killed the
 process mid-WhatsApp-send at its ExecutionTimeLimit; the PNG/XLSX were built
 fine but never reached WhatsApp, and the log just stopped with no error.
 Retry-via-unread-message covers a crash on the NEXT poll, but says nothing
-in the moment a send actually fails. alert_failure() below sends a separate,
-text-only Twilio WhatsApp message (no image, no dependency on R2 or the
-image-send path that just failed) any time a build succeeds but delivery
-does not -- so a failure is never silent, even if every retry also fails.
+in the moment a send actually fails. alert_failure() below writes a loud,
+banner-delimited DELIVERY FAILURE block naming the reason, so that case can
+never again look like a normal log tail.
+
+It is LOG-ONLY by design -- no WhatsApp, no email. Lou is the alert: if the
+PNG has not arrived by ~07:00 he already knows something broke, and what he
+needs from this file is the REASON, without reading a traceback. A second
+WhatsApp would add nothing and, on a persistently failing send, would fire
+once per 5-minute poll across the whole window.
 A SIGTERM handler covers the same 2026-08-26 scenario on Railway: a graceful
 container stop/restart mid-send now alerts before exiting, instead of just
 stopping.

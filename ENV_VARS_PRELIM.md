@@ -24,14 +24,19 @@ the point of use if one is missing (never a silent no-op), except where noted.
 `R2_BUCKET` (`crop-media`) and `R2_PUBLIC_BASE` are NOT secrets and are
 hardcoded in `send_oi_whatsapp.py` — no env var needed for those.
 
-## Twilio (send_oi_whatsapp.py send path AND prelim_oi_watcher.alert_failure())
+## Twilio (send_oi_whatsapp.py — the PNG delivery path ONLY)
+
+NOTE: failures do NOT send a WhatsApp. `prelim_oi_watcher.alert_failure()` is
+LOG-ONLY: it writes a banner-delimited `DELIVERY FAILURE: <reason>` block to
+prelim_oi_watcher.log and sends nothing. Do not wait on a failure message that
+cannot arrive — if the report has not landed, read the log.
 
 | Var | Used by | Notes |
 |---|---|---|
-| `TWILIO_SID` | image send + failure alert | Same Twilio account for both the normal PNG delivery and the loud-failure text alert. |
-| `TWILIO_TOKEN` | image send + failure alert | |
-| `FROM_WA` | image send + failure alert | WhatsApp-enabled Twilio sender number. |
-| `TO_WA` | image send + failure alert | Recipient (Lou's WhatsApp number). |
+| `TWILIO_SID` | image send | Delivery of the PNG itself. |
+| `TWILIO_TOKEN` | image send | |
+| `FROM_WA` | image send | WhatsApp-enabled Twilio sender number. |
+| `TO_WA` | image send | Recipient (Lou's WhatsApp number). |
 
 ## VLM Data Gateway (build_prelim_oi.py — load_official(), gateway mode)
 
