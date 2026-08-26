@@ -68,10 +68,18 @@ cron 03:00-09:55 ET. Both watchers race the same UNSEEN email and mark `\Seen`
 only after a successful send, so only ONE can deliver. If Railway fails before
 sending, the email stays unread — re-enable Windows and run manually.
 
-**Open / not done:** `/history` with no params returns ~54MB JSON (~5-6s, no
-payload cache) — fine inside the 480s timeout but worth date-bounding later, as
-the prelim needs 22 sessions not 4,767. No retry on the gateway call (traceback
--> exit 1 -> watcher retries; safe, not graceful).
+**CLOSED — 54MB payload + no retry (commit below).** `_fetch_gateway_history()`
+now sends `?from=today-400d`: 54MB -> 3.5MB (94% smaller), 280 sessions where
+MoM needs 21. 400 CALENDAR days is a deliberate margin over 21 TRADING sessions
+(absorbs holidays/closures); it is a FLOOR, not a window — pick_baselines()
+still walks back N real sessions, so over-fetching is free and under-fetching is
+the only risk. Retries: 3 attempts, linear backoff, transport+5xx only — a 4xx
+is a real answer (bad key/params) and fails immediately rather than burning the
+clock. Added an empty-rows guard: no rows now RAISES instead of building a
+report with every baseline dashed. Verified both modes: identical baselines
+(08-24/08-18/07-27), 36/36 reconciled, PNG body pixel-identical.
+
+**NO OPEN ITEMS.**
 
 **CLOSED — image trim (~1.02GB is fine, do not chase it).** The idea was to drop
 "the unused headless shell" (272MB). That was BACKWARDS: `p.chromium.launch()`

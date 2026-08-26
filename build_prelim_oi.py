@@ -36,8 +36,8 @@ OFFICIAL OI SOURCE (load_official()):
   (sessions_sorted, {date: {(commodity, contract_month): row}}) is unchanged.
 """
 
-import csv, argparse, json, os, pathlib, re, sys, urllib.error, urllib.request
-from datetime import datetime, date
+import csv, argparse, json, os, pathlib, re, sys, time, urllib.error, urllib.request
+from datetime import datetime, date, timedelta
 
 BASE_DIR = pathlib.Path(__file__).parent
 OI_FILE  = BASE_DIR / 'data' / 'oi_data.csv'
@@ -157,25 +157,56 @@ def load_prelim(path):
 
 
 def _fetch_gateway_history():
-    """Full-history rows from GET /v1/openinterest/history (no from=/to= --
-    the omit-both case returns the full file, same as reading the CSV whole).
-    Same field names as oi_data.csv: date, commodity, contract, open_int,
-    first_notice, last_trade, ... Raises on any failure -- load_official()
-    below decides what to do with that (there is no silent stale fallback
-    here; a stateless service has no local copy to fall back to)."""
+    """Rows from GET /v1/openinterest/history, date-bounded and retried.
+
+    WHY A ?from= BOUND: omitting both bounds returns the WHOLE file — ~54MB of
+    JSON, 181k rows, 4,767 sessions, ~5-6s per call — when the deepest baseline
+    we need is MoM = 21 TRADING sessions back (see WINDOWS). 400 calendar days
+    is a deliberately huge margin over 21 trading sessions: it absorbs holidays,
+    exchange closures and any stretch of missing sessions, while still cutting
+    the payload by well over an order of magnitude.
+
+    It is a FLOOR, not an exact window — pick_baselines() still walks back N
+    real sessions from whatever it gets, so over-fetching is free and
+    under-fetching is the only failure mode worth guarding. If a baseline ever
+    cannot be resolved the report prints a dash for it rather than guessing,
+    so a too-narrow bound degrades visibly rather than silently.
+
+    RETRIES: a stateless service has no local CSV to fall back on, so a single
+    transient blip would otherwise lose the morning's report. Three attempts
+    with a short linear backoff. Retries cover transport errors and 5xx; a 4xx
+    is a real answer (bad key, bad params) and fails immediately — retrying it
+    would just burn the clock. Raises on final failure; load_official() lets
+    that propagate, the watcher treats a non-zero exit as a retryable build
+    failure and leaves the email unread for the next poll.
+    """
     key = os.environ.get('VLM_API_KEY', '')
     if not key:
         raise RuntimeError('VLM_API_KEY is not set — required for OI_DATA_SOURCE=gateway')
-    url = f'{GATEWAY_BASE}/v1/openinterest/history'
+
+    frm = (date.today() - timedelta(days=400)).isoformat()
+    url = f'{GATEWAY_BASE}/v1/openinterest/history?from={frm}'
     req = urllib.request.Request(url, headers={'X-VLM-API-Key': key})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode('utf-8', 'replace')[:300]
-        raise RuntimeError(f'gateway history fetch failed: HTTP {e.code} {detail}') from e
-    except Exception as e:
-        raise RuntimeError(f'gateway history fetch failed: {e!r}') from e
+
+    attempts, last = 3, None
+    for i in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode('utf-8', 'replace')[:300]
+            last = RuntimeError(f'gateway history fetch failed: HTTP {e.code} {detail}')
+            if e.code < 500:
+                raise last from e   # 4xx is an answer, not a blip — do not retry
+        except Exception as e:
+            last = RuntimeError(f'gateway history fetch failed: {e!r}')
+        if i < attempts:
+            print(f'WARN: gateway fetch attempt {i}/{attempts} failed ({last}) — retrying')
+            time.sleep(2 * i)
+    else:
+        raise last
+
     if body.get('stale'):
         # Surface it (per house rule: never present stale data as live without
         # saying so) but do not refuse to build -- the gateway itself decided
@@ -184,7 +215,12 @@ def _fetch_gateway_history():
         # matter here. State it loudly in the build log either way.
         print(f"WARN: gateway history is STALE (age {body.get('stale_age_seconds')}s) "
               f"-- baselines may reflect a slightly older oi_data.csv snapshot.")
-    return body.get('oi_data') or []
+
+    rows = body.get('oi_data') or []
+    if not rows:
+        raise RuntimeError(f'gateway history returned NO rows for from={frm} — '
+                           f'refusing to build with no official baseline data')
+    return rows
 
 
 def load_official():
