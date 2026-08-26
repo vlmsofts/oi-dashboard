@@ -47,3 +47,7 @@ output/prelim/
 
 # Pre-backfill snapshot of oi_data.csv (2026-08-17 cycle-3 merge)
 data/oi_data.csv.BEFORE_CYCLE3
+
+# vlm_daily_data_guard runtime artifacts (local state, never shared)
+vlm_daily_data_guard.log
+.guard_alerted_*
