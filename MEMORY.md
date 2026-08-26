@@ -1,5 +1,47 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-26 (later) — OI cards missed: master fetch hung on JOB 2, guard held
+
+**Session summary.** Lou: "o.i. cards never came via whatsapp." Cause was UPSTREAM,
+not the send path. `vlm master fetch` (09:30:38) hung at `--- JOB 2: OI dashboard
+data append ---`, log frozen at 09:33:53 and nothing after. It never wrote
+`oi_data.csv`, so at 09:35 `build_whatsapp_oi.py` hit `check_freshness()`, saw
+yesterday's mtime, and refused to send stale data. **The guard did its job — it
+caught the failure, it did not cause it.**
+
+**How the hang was PROVEN (not inferred):** CPU sampled twice 5s apart was
+byte-identical at `0.796875` — frozen, not slow. `Responding: True` the whole
+time, so the process looked healthy. Today's JOB 2 also started at 09:33:53 vs
+~09:30:4x on all 11 prior days (grep of the log), i.e. a ~3min stall BEFORE the
+hang. Both PIDs (128552 master fetch, 136492 build_whatsapp) sat wedged.
+
+**Fix was Lou's reboot, then a plain re-run.** After reboot: JOB 2 cleared in
+**1 second** (09:56:44 -> 09:56:45, 36 rows appended) vs 22+ min hung. Same code,
+same file, same size. That delta is the proof it was **file-lock contention, not
+a code bug** — nothing was changed to make it work. Full run completed 09:58:54,
+all jobs, all pushed (c076d1d, 042d7a0, d89c71a, 0cd7379).
+
+**Verified effects, not statuses:** oi_data.csv/options_oi.csv/spread_ohlc.csv all
+re-stamped 2026-08-26; oi_data max trade_date 2026-08-25 @36 rows (T+1 correct);
+options_oi max 2026-08-26 (release = trade+1bday, correct); WhatsApp 4 sent /
+0 failed (HTTP 201 each); site slug `open-interest-monitor-2026-08-25-2026-08-26`;
+`.sent_2026-08-25` marker written 09:59:40. CT PNG was READ back to confirm real
+content (Dec '26 198,614, -1,520 DoD; total 374,857; options panel populated) —
+a PNG existing on disk is not evidence it rendered data.
+
+**LIAR OF THE DAY:** the hung task reported `Last Result: 0` after the reboot
+killed it. Zero is the reboot-kill exit, NOT success. Checked alone, a hang of
+this class reads as a clean run. **`oi_data.csv` mtime is the only honest signal.**
+
+**Open / NOT actioned (Lou's call, deliberately untouched):** master fetch reads
+the 17MB oi_data.csv twice with no timeout — dedup guard at vlm_master_fetch.py
+:514-516 and `load_yesterday_oi()` at :521. Both sit inside the OneDrive sync
+root. A OneDrive stall there silently takes down the whole daily chain with no
+alert; Lou only found out because cards didn't arrive. Options floated, none
+implemented: (a) read timeout, (b) move data dir outside the sync root,
+(c) watchdog alerting if oi_data.csv mtime isn't today by 09:45.
+
+
 ## 2026-08-26 — Prelim OI moved to Railway; gateway-backed baselines
 
 **Session summary.** Two consecutive missed prelim deliveries (08-25, 08-26) with

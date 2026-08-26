@@ -96,3 +96,37 @@ only a manual run delivered). 08-26 was a TIMEOUT/kill failure. Also: an exit co
 on any VLM scheduled task means "scheduler killed it," never "the script errored" — check
 `LastTaskResult` BEFORE reading a traceback that isn't there. And a report that is built but
 undelivered must fail LOUDLY; silence read as success for two mornings running.
+
+## 2026-08-26 — OI cards missing: hung process reported exit code 0
+
+**What didn't work:** Checking the scheduled task's status to decide whether the
+morning fetch ran. `vlm master fetch` showed `Last Result: 0` and `Status: Ready`
+after the reboot — that zero is the **reboot-kill exit, not success**. The task had
+actually hung mid-run and written nothing to oi_data.csv. Reading task status alone,
+this failure is indistinguishable from a clean run. Also misleading: the process
+reported `Responding: True` the entire time it was wedged.
+
+**What worked instead:** Sample CPU twice, a few seconds apart. Identical values
+(`0.796875` both times) prove *frozen*, not *slow* — a working process moves. Then
+diff the log's own timing against prior days: `grep "JOB 2"` showed today starting
+at 09:33:53 vs ~09:30:4x on all 11 previous runs, exposing a stall before the hang.
+The decisive artifact was file mtime: oi_data.csv still stamped the PRIOR day while
+the task claimed success.
+
+**Root cause: OneDrive file-lock contention, not code.** Proof is the re-run delta —
+after reboot, the identical JOB 2 against the identical 17MB file finished in **1
+second** (09:56:44 -> 09:56:45) versus 22+ minutes hung. Nothing in the code changed.
+OneDrive (PID 13408) had accumulated ~58,654 CPU-seconds since Aug 22.
+
+**Note for next time:** This is the THIRD consecutive silent failure on this box
+(08-25 detection, 08-26 05:15 scheduler kill, 08-26 09:30 lock hang) — all three
+under CPU/lock contention, all three reading as success. Distinct exit codes,
+distinct causes, same symptom: nothing arrived and nothing complained. Rules that
+generalize: (1) on any VLM scheduled task, verify the EFFECT (file mtime), never the
+status field — `0` can mean killed and `267014` means scheduler-killed, never script
+error; (2) two identical CPU samples = hung, and `Responding: True` means nothing;
+(3) any long unguarded read of a large file inside the OneDrive sync root is a
+single point of failure for the whole daily chain. `build_whatsapp_oi.py`'s
+`check_freshness()` mtime guard was the ONLY thing that caught this — it is load-
+bearing, do not weaken it to a trade_date comparison (OI is T+1, so trade_date is
+legitimately yesterday even on a good day; mtime is what proves today's fetch ran).
