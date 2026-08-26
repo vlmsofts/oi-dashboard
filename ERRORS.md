@@ -69,3 +69,30 @@ holiday-blind everywhere in this chain — correct on normal days, wrong across 
 They become holiday-correct only once producer-stamped dates (from the real Bloomberg session)
 flow through. Any audit built on them will false-positive around holidays; gate on the
 duplicate test, not the date arithmetic.
+
+## 2026-08-26 — Prelim OI built but never delivered; log looked clean
+
+**What didn't work:** Reading the watcher log as if a missing "WhatsApp sent" line meant the
+build failed. It did not. The log's LAST line was `XLSX : ...` and then nothing — no error,
+no traceback. That absence is the tell, and it is easy to misread as a silent build failure.
+
+**What worked instead:** `Get-ScheduledTaskInfo` → `LastTaskResult : 267014` (0x41306, task
+terminated). The 05:15 run BUILT the PNG (395,608 bytes) and XLSX successfully, then Task
+Scheduler killed it at 05:25 on the 10-min `ExecutionTimeLimit` — mid-WhatsApp-send. The
+report existed on disk the whole time; only delivery was lost.
+
+Root cause of the slowness: the build normally takes 4s (08-24: 4s, 08-25: 3s) but took 253s
+and 306s on 08-26 under machine load. Re-timing the identical render afterwards gave 34s total
+with the screenshot itself at 0.2s — so the render code is NOT the problem; CPU contention was.
+Note the box had ~9 concurrent python processes including a DUPLICATE `pull_loop.py CC` pair.
+
+Fix: `ExecutionTimeLimit` 10min → 20min. The watcher's own build timeout (480s) was documented
+as sitting "safely under" the scheduler limit — true, but the scheduler budget must cover
+build AND SEND. That gap is what dropped the report.
+
+**Note for next time:** Two different failures on consecutive days, DIFFERENT causes — do not
+assume a repeat. 08-25 was a DETECTION failure (blank subject, automated polls found nothing,
+only a manual run delivered). 08-26 was a TIMEOUT/kill failure. Also: an exit code of 267014
+on any VLM scheduled task means "scheduler killed it," never "the script errored" — check
+`LastTaskResult` BEFORE reading a traceback that isn't there. And a report that is built but
+undelivered must fail LOUDLY; silence read as success for two mornings running.
