@@ -14,13 +14,27 @@ send from.
 Idempotency: the message is marked \\Seen only after a successful build, so a
 crash or a Twilio outage leaves it unread and the next poll retries it.
 
+LOUD FAILURE (added for the Railway port, 2026-08-26): the fatal flaw this
+port fixes is that "built but not delivered" looked IDENTICAL to success in
+the Windows Task Scheduler log -- on 2026-08-26 the scheduler killed the
+process mid-WhatsApp-send at its ExecutionTimeLimit; the PNG/XLSX were built
+fine but never reached WhatsApp, and the log just stopped with no error.
+Retry-via-unread-message covers a crash on the NEXT poll, but says nothing
+in the moment a send actually fails. alert_failure() below sends a separate,
+text-only Twilio WhatsApp message (no image, no dependency on R2 or the
+image-send path that just failed) any time a build succeeds but delivery
+does not -- so a failure is never silent, even if every retry also fails.
+A SIGTERM handler covers the same 2026-08-26 scenario on Railway: a graceful
+container stop/restart mid-send now alerts before exiting, instead of just
+stopping.
+
 Usage:
   python prelim_oi_watcher.py              # poll once, build+send if found
   python prelim_oi_watcher.py --dry-run    # build but do NOT send or mark read
   python prelim_oi_watcher.py --no-send    # build + mark read, skip WhatsApp
 """
 
-import argparse, email, imaplib, os, pathlib, subprocess, sys
+import argparse, email, imaplib, os, pathlib, signal, subprocess, sys
 from datetime import datetime
 
 BASE_DIR   = pathlib.Path(__file__).parent
@@ -40,6 +54,15 @@ SUBJECT_TOKEN = 'prelim'
 FALLBACK_SENDER = 'thecottonkid@gmail.com'
 PRELIM_CSV_PREFIX = 'preliminaryopeninterest'
 IMAP_HOST, IMAP_PORT = 'imap.gmail.com', 993
+
+# No Eastern-time / DST gating logic here by design (see railway.prelim.toml):
+# the cron schedule itself is a plain static UTC expression, widened by an
+# hour on each side of the real 04:30-07:00 ET target so it never needs to
+# know which side of DST the calendar is on. Extra firings outside the real
+# window are cheap -- if there's no unread prelim email, main() logs that and
+# returns immediately below (no Gmail/build work happens), and a message is
+# only ever marked \\Seen after a successful send, so a wider firing window
+# can never cause a double-send.
 
 
 def _load_env():
@@ -177,13 +200,59 @@ def send(png, session):
     return s.send_whatsapp_image(urls[0], f'ICE PRELIM OI — {session}', session)
 
 
+# ── Loud failure ──────────────────────────────────────────────────────────────
+# Currently-processing marker for the SIGTERM handler below -- set right before
+# build() starts, cleared once the message is fully handled (sent+marked read,
+# or a normal failure branch already logged/alerted its own reason). If the
+# process is killed while this is non-None, the SIGTERM handler knows a build
+# was in flight and alerts even though nothing else caught it.
+_in_flight = None
+
+
+def alert_failure(reason):
+    """Record a 'built but not delivered' failure LOUDLY in the log.
+
+    Deliberately LOG-ONLY. Lou is the alert: if the PNG does not arrive on
+    WhatsApp by ~07:00 he already knows something broke, so a second WhatsApp
+    message adds nothing and a retrying failure would have fired one on every
+    5-minute poll across the window. What he needs from this file is the
+    REASON, stated plainly, without reading a traceback.
+
+    The failure this exists for (2026-08-26) produced a log whose last line was
+    a normal-looking `XLSX : ...` — the process was killed mid-send, so the
+    absence of a success line was the ONLY signal, and it read as a build
+    failure that never happened. These markers make that case unmistakable.
+    """
+    log('  ' + '=' * 68)
+    log(f'  DELIVERY FAILURE: {reason}')
+    log('  The report may exist on disk but was NOT delivered. Check output/prelim/.')
+    log('  ' + '=' * 68)
+
+
+def _sigterm_handler(signum, frame):
+    """Railway sends SIGTERM before SIGKILL on redeploys/restarts/OOM-adjacent
+    stops. This is the exact 2026-08-26 failure mode (killed mid-send) —
+    alert BEFORE exiting rather than just stopping silently."""
+    if _in_flight:
+        log(f'  SIGTERM received while processing {_in_flight!r} — alerting')
+        alert_failure(f'process received SIGTERM mid-run (in flight: {_in_flight}) '
+                       f'— build may be done but NOT confirmed delivered; message '
+                       f'left unread, will retry next poll')
+    else:
+        log('  SIGTERM received (idle) — exiting')
+    sys.exit(143)  # 128 + SIGTERM(15), conventional
+
+
 def main():
+    global _in_flight
     ap = argparse.ArgumentParser()
     ap.add_argument('--dry-run', action='store_true',
                     help='build only; do not send or mark read')
     ap.add_argument('--no-send', action='store_true',
                     help='build and mark read, but skip WhatsApp')
     args = ap.parse_args()
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
 
     _load_env()
     INBOX_DIR.mkdir(parents=True, exist_ok=True)
@@ -207,22 +276,34 @@ def main():
         saved = INBOX_DIR / f'{stamp}_{fn}'
         saved.write_bytes(payload)
         log(f'  saved {saved.name} ({len(payload):,} bytes)')
+        _in_flight = saved.name
 
         ok, out = build(saved)
         for ln in out.splitlines():
             log(f'    | {ln}')
         if not ok:
             log('  BUILD FAILED — leaving message unread for retry')
+            # Build failures are not alerted: they retry silently every 5 min
+            # and (per the CSV-recency guard in build_prelim_oi.py) most are
+            # a transient/expected condition, not the "silent success-looking
+            # failure" this alert path exists for. A build that NEVER
+            # recovers across the whole polling window still shows up in the
+            # log for review; alerting here would just be noisy.
+            _in_flight = None
             continue
 
         session = session_from(out)
         png = OUT_DIR / f'prelim_oi_{session}.png' if session else None
         if not (png and png.exists()):
             log(f'  built but PNG missing ({png}) — leaving unread')
+            alert_failure(f'build reported success but PNG is missing '
+                          f'(session={session}, expected {png}) — left unread for retry')
+            _in_flight = None
             continue
 
         if args.dry_run:
             log(f'  DRY RUN — built {png.name}, not sending, left unread')
+            _in_flight = None
             continue
 
         if not args.no_send:
@@ -231,13 +312,22 @@ def main():
                     log(f'  WhatsApp sent for {session}')
                 else:
                     log('  WhatsApp send FAILED — leaving unread for retry')
+                    alert_failure(f'build SUCCEEDED (session={session}, {png.name}) '
+                                  f'but WhatsApp send FAILED — report exists but was '
+                                  f'NOT delivered; left unread, will retry next poll')
+                    _in_flight = None
                     continue
             except Exception as e:
                 log(f'  send error: {e} — leaving unread for retry')
+                alert_failure(f'build SUCCEEDED (session={session}, {png.name}) but '
+                              f'the send raised {e!r} — report exists but was NOT '
+                              f'confirmed delivered; left unread, will retry next poll')
+                _in_flight = None
                 continue
 
         m.uid('store', uid, '+FLAGS', '\\Seen')
         log(f'  marked read (UID {uid.decode()})')
+        _in_flight = None
 
     m.logout()
 

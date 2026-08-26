@@ -1,0 +1,35 @@
+# railway.prelim.toml — Railway service config for the prelim OI cron worker
+# (prelim_oi_watcher.py). Separate service from the main OI dashboard (which
+# uses railway.json/Procfile + nixpacks) -- point THIS service's Root
+# Directory / config path at this file in the Railway dashboard when creating
+# it, and set its Dockerfile Path to Dockerfile.prelim.
+#
+# This is a CRON job, not a web service: no PORT, no healthcheck, no restart
+# policy tied to an always-on process. Each firing runs prelim_oi_watcher.py
+# to completion (poll once, build+send if found, exit) and the container
+# stops until the next scheduled firing.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile.prelim"
+
+[deploy]
+startCommand = "python prelim_oi_watcher.py"
+# Lowercase to match the house pattern already live in
+# vlm-data-gateway/railway.toml ("on_failure") -- Railway's TOML parser
+# accepts this casing. "never": a cron run either finishes (success or a
+# logged/alerted failure) or is killed by SIGTERM at the next scheduled
+# firing's redeploy; there is no "restart this same run" case to opt into.
+restartPolicyType = "never"
+
+# ── Cron schedule ───────────────────────────────────────────────────────────
+# Target: every 5 min, Mon-Fri, 04:30-07:00 US/Eastern. Railway cron is
+# UTC-only with no named-timezone support, so the window below is widened by
+# 1 hour on each side (03:30-08:00 ET-equivalent) and expressed as ONE static
+# UTC cron line -- no DST branching, no timezone math at runtime. A wider
+# window costs nothing: prelim_oi_watcher.py exits immediately when there's
+# no unread prelim email, and only marks a message read after a successful
+# send, so the extra early/late firings can never cause a double-send.
+# This single expression covers 03:30-08:00 ET in BOTH EST (UTC-5: 08:30-13:00
+# UTC) and EDT (UTC-4: 07:30-12:00 UTC) -- i.e. 07:00-13:55 UTC.
+cronSchedule = "*/5 7-13 * * 1-5"

@@ -25,6 +25,11 @@ _debug_rendered.html
 # Reference docs are tracked under options_dashboard_DOCS/ (see !rule below)
 !options_dashboard_DOCS/
 
+# The Railway prelim service's dependency list. Matches *.txt above, so without
+# this exception it is silently untracked and NEVER reaches the container --
+# the Docker build would then have no requirements file to install from.
+!requirements-prelim.txt
+
 # Old / debug / one-off scripts
 _check_js.py
 fix_fnd.py

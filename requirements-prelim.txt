@@ -1,0 +1,13 @@
+# requirements-prelim.txt — deps for the prelim OI cron worker
+# (prelim_oi_watcher.py -> build_prelim_oi.py -> send_oi_whatsapp.py)
+#
+# NOT the same as requirements.txt (that's the main Dash dashboard service).
+# Kept separate on purpose: this worker doesn't need flask/gunicorn, and the
+# dashboard doesn't need playwright/openpyxl.
+#
+# playwright version is PINNED and must match the Dockerfile.prelim base
+# image tag exactly (v1.58.0-noble) -- see the comment at the top of that
+# file. Bump both together, never independently.
+playwright==1.58.0
+openpyxl>=3.1.0
+boto3>=1.34.0

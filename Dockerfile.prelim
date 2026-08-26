@@ -1,0 +1,59 @@
+# Dockerfile.prelim — prelim_oi_watcher / build_prelim_oi Railway cron worker
+#
+# Base: official Playwright Python image, Chromium PREINSTALLED. Do not
+# apt-get install chromium/browser deps yourself -- this image already ships
+# the exact Chromium build that matches the pinned Playwright version below,
+# which is the whole point of using it (a self-installed Chromium can drift
+# out of sync with whatever `playwright` pip resolves and break at runtime).
+#
+# Tag is pinned to v1.58.0 to match the `playwright==1.58.0` package this repo
+# uses (see requirements-prelim.txt) -- Playwright refuses to run against a
+# mismatched browser/library version, so the image tag and the pip version
+# MUST move together. Confirmed live at mcr.microsoft.com/v2/playwright/python
+# /tags/list on 2026-08-26: v1.58.0-noble exists (Ubuntu 24.04 base).
+#
+# When playwright is upgraded in requirements-prelim.txt, bump this tag to
+# match in the SAME change -- never independently.
+FROM mcr.microsoft.com/playwright/python:v1.58.0-noble
+
+WORKDIR /app
+
+# FONTS — the report declares exactly one stack: `font-family:Arial,sans-serif`
+# (build_prelim_oi.py). Arial is a Microsoft font and is NOT present on Linux,
+# so Chromium falls back to whatever sans-serif is installed. Liberation Sans is
+# METRICALLY IDENTICAL to Arial (same advance widths by design), so the report's
+# fixed-width table layout cannot reflow — column alignment is preserved and only
+# hairline glyph-curve differences remain. The base image is believed to ship
+# fonts-liberation already; installing it EXPLICITLY makes that a guarantee of
+# this Dockerfile rather than an inherited assumption that a future base-image
+# rebuild could quietly drop.
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-liberation     && rm -rf /var/lib/apt/lists/*
+
+# Python deps only -- Chromium + its OS-level libs are already in the base
+# image (see header comment). `playwright install` is NOT run here; the
+# preinstalled browser is used as-is.
+COPY requirements-prelim.txt .
+RUN pip install --no-cache-dir -r requirements-prelim.txt
+
+# App code. Only what this job needs -- not the whole OI dashboard (Dash app,
+# bootstrap scripts, etc.) which have their own Railway service.
+COPY prelim_oi_watcher.py build_prelim_oi.py send_oi_whatsapp.py vlm_secrets.py ./
+
+# Runtime-only directories. No data/oi_data.csv is copied in: the service is
+# STATELESS by design (OI_DATA_SOURCE=gateway, see build_prelim_oi.py) and
+# must never ship or fall back to a bundled CSV that can go stale. These
+# three dirs exist purely as scratch space for the current run:
+#   data/prelim_inbox/  -- the ICE CSV attachment saved off the triggering email
+#   output/prelim/      -- the rendered PNG/HTML/XLSX
+#   (log file)           -- prelim_oi_watcher.log, plain append-only text
+# Nothing under /app is a Railway volume -- this scratch is expected to be
+# wiped on every redeploy/restart, which is fine: nothing here is a system of
+# record, everything durable lives in the gateway or gets sent out via
+# WhatsApp before the run ends.
+RUN mkdir -p /app/data/prelim_inbox /app/output/prelim && \
+    touch /app/prelim_oi_watcher.log && \
+    chmod -R 777 /app/data /app/output /app/prelim_oi_watcher.log
+
+# No PORT/EXPOSE -- this is a cron/worker job, not a web service (see
+# railway.toml: no [deploy] port, startCommand runs once and exits).
+CMD ["python", "prelim_oi_watcher.py"]

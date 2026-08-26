@@ -20,15 +20,49 @@ Usage:
   python build_prelim_oi.py --no-png             # xlsx only
 
 Requires: playwright (PNG), openpyxl (xlsx)
+
+OFFICIAL OI SOURCE (load_official()):
+  Controlled by env var OI_DATA_SOURCE = 'gateway' | 'local' (default 'local').
+  'gateway' reads GET /v1/openinterest/history from the VLM Data Gateway
+  (https://vlmapi.vlmdata.com, auth header X-VLM-API-Key from env var
+  VLM_API_KEY) -- this is what makes the service STATELESS: no bundled CSV
+  ships in the container, so it can never serve a stale copy of oi_data.csv.
+  'local' reads data/oi_data.csv off disk (OI_FILE below) for offline testing
+  without network/credentials. Row field names are IDENTICAL between the two
+  sources (gateway rows mirror the CSV schema exactly), so every downstream
+  function (contract_key, pick_baselines, build_rows, the roll-boundary
+  _generation tie-break in load_official itself) is unaware of which source
+  was used -- only load_official()'s body branches; its return contract
+  (sessions_sorted, {date: {(commodity, contract_month): row}}) is unchanged.
 """
 
-import csv, argparse, pathlib, re, sys
+import csv, argparse, json, os, pathlib, re, sys, urllib.error, urllib.request
 from datetime import datetime, date
 
 BASE_DIR = pathlib.Path(__file__).parent
 OI_FILE  = BASE_DIR / 'data' / 'oi_data.csv'
 OUT_DIR  = BASE_DIR / 'output' / 'prelim'
-DOWNLOADS = pathlib.Path.home() / 'Downloads'
+
+# pathlib.Path.home() raises on some minimal containers (no HOME/passwd entry),
+# and even when it doesn't, '<home>/Downloads' simply won't exist there. This is
+# only ever consulted as a fallback when --csv is not passed (see
+# find_prelim_csv), so a missing/unresolvable Downloads must not crash import --
+# just degrade to a path that glob() will safely find nothing in.
+try:
+    DOWNLOADS = pathlib.Path.home() / 'Downloads'
+except Exception:
+    DOWNLOADS = BASE_DIR / 'Downloads'
+
+# VLM Data Gateway (see module docstring above).
+GATEWAY_BASE = os.environ.get('VLM_API_BASE', 'https://vlmapi.vlmdata.com')
+# DEFAULT IS 'local' ON PURPOSE. The Windows scheduled job runs this file with no
+# env overrides, so whatever this default is IS what runs in production at 05:00
+# each morning. /v1/openinterest/history is not deployed yet; defaulting to
+# 'gateway' would have made tomorrow's run fail with HTTP 400 (the path falls
+# through to /v1/openinterest/<commodity> and 400s on 'history'). The Railway
+# service sets OI_DATA_SOURCE=gateway explicitly. Flip this default only AFTER
+# the endpoint is live and verified.
+OI_DATA_SOURCE = os.environ.get('OI_DATA_SOURCE', 'local').strip().lower()
 
 # Sugar No.11 only. The same ICE file also carries SF = SUGAR 16, a different
 # contract entirely -- matching on the name would silently pull both, so the
@@ -122,9 +156,53 @@ def load_prelim(path):
     return report_date, data, ice_chg
 
 
+def _fetch_gateway_history():
+    """Full-history rows from GET /v1/openinterest/history (no from=/to= --
+    the omit-both case returns the full file, same as reading the CSV whole).
+    Same field names as oi_data.csv: date, commodity, contract, open_int,
+    first_notice, last_trade, ... Raises on any failure -- load_official()
+    below decides what to do with that (there is no silent stale fallback
+    here; a stateless service has no local copy to fall back to)."""
+    key = os.environ.get('VLM_API_KEY', '')
+    if not key:
+        raise RuntimeError('VLM_API_KEY is not set — required for OI_DATA_SOURCE=gateway')
+    url = f'{GATEWAY_BASE}/v1/openinterest/history'
+    req = urllib.request.Request(url, headers={'X-VLM-API-Key': key})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode('utf-8', 'replace')[:300]
+        raise RuntimeError(f'gateway history fetch failed: HTTP {e.code} {detail}') from e
+    except Exception as e:
+        raise RuntimeError(f'gateway history fetch failed: {e!r}') from e
+    if body.get('stale'):
+        # Surface it (per house rule: never present stale data as live without
+        # saying so) but do not refuse to build -- the gateway itself decided
+        # serving stale cache beats a 503, and a T-1 baseline file changes at
+        # most once a day, so a short staleness window is very unlikely to
+        # matter here. State it loudly in the build log either way.
+        print(f"WARN: gateway history is STALE (age {body.get('stale_age_seconds')}s) "
+              f"-- baselines may reflect a slightly older oi_data.csv snapshot.")
+    return body.get('oi_data') or []
+
+
 def load_official():
-    """Return (sessions_sorted, {date: {(commodity, contract_month): row}})."""
-    rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
+    """Return (sessions_sorted, {date: {(commodity, contract_month): row}}).
+
+    Row source is OI_DATA_SOURCE ('gateway' default, 'local' for offline
+    testing off data/oi_data.csv) -- see module docstring. Everything past
+    this point (contract_key mapping, the roll-boundary _generation
+    tie-break) is identical regardless of source: both feeds carry the same
+    field names, so the row objects are interchangeable.
+    """
+    if OI_DATA_SOURCE == 'local':
+        rows = list(csv.DictReader(OI_FILE.open(encoding='utf-8')))
+    elif OI_DATA_SOURCE == 'gateway':
+        rows = _fetch_gateway_history()
+    else:
+        sys.exit(f"ERROR: unrecognized OI_DATA_SOURCE={OI_DATA_SOURCE!r} "
+                 f"(expected 'gateway' or 'local')")
     by_date, sessions = {}, set()
     for r in rows:
         c = r['commodity']
