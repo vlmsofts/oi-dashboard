@@ -1,5 +1,52 @@
 # Open interest dashboard — MEMORY
 
+## 2026-08-26 — Tier 1 SHIPPED: vlm_daily_data_guard.py (504e373)
+
+**Shipped.** New standalone `vlm_daily_data_guard.py` + scheduled task
+`VLM Daily Data Guard` (Mon-Fri 09:45, ExecutionTimeLimit 10min, IgnoreNew).
+Checks mtime on the 5 files master fetch writes across THREE repo trees
+(oi_data, options_oi, spread_ohlc, macro_signals + CTA MONITOR macro_features)
+and WhatsApps Lou naming exactly which are stale/missing.
+
+**`vlm_master_fetch.py` IS UNCHANGED — and that was Lou's explicit correction.**
+Mid-task an agent began restructuring master fetch's control flow (per-job
+try/except + conditional exit code). Lou stopped it: *"i want the master fetch
+itself unchanged...it works perfectly...this is just a guard and alert."* Edits
+were reverted via `git checkout --` (never committed, never pushed; verified
+byte-identical after). **RULE FOR NEXT TIME: a guard OBSERVES from outside. If a
+"guard" task has you editing the thing being guarded, you have misread the ask.**
+The observation-only design is also strictly safer — if the guard breaks, the
+pipeline is untouched.
+
+**Design decisions, both deliberate:**
+  * **mtime, NOT exit code.** A hung task reports NOTHING (never returns); a
+    scheduler kill reports 0; and master fetch ends in an unconditional
+    `return 0` even with summary['errors'] populated. Exit code cannot express
+    failure here. mtime is the only honest signal.
+  * **mtime, NOT trade_date.** OI is T+1 — on a GOOD day oi_data.csv's max
+    trade_date is legitimately YESTERDAY. Gating on trade_date would false-alarm
+    every single morning. Same reasoning as build_whatsapp_oi.check_freshness(),
+    intentionally mirrored.
+  * Watches CTA MONITOR too — a guard scoped to this repo alone would miss a
+    CTA-side failure, since master fetch writes into three repo trees.
+  * Marker `.guard_alerted_<date>` written ONLY on a successful send, so a Twilio
+    outage leaves the alert retryable rather than silently suppressed all day.
+  * Text-only Twilio (no R2/boto3 — that is only needed for images).
+
+**VERIFIED BY REPLAYING THE REAL FAILURE, not just a happy path:** sandbox with
+oi_data.csv + options_oi.csv stamped 08-25 and the other three stamped 08-26
+(exactly this morning's shape) -> guard flagged both by name, exit 1. Also
+verified: GONE detection, all-fresh no-alert, live Twilio HTTP 201, task fires
+clean via `schtasks /run`, and NO false marker on a healthy run. Sandbox deleted.
+
+**STILL OPEN (Lou's call, not actioned):** master fetch `ExecutionTimeLimit=PT72H`
+— a Task Scheduler setting, NOT a code change. Today's hang would have squatted
+until Saturday blocking every run in between. Proposed drop to ~20min so a hang
+self-kills. Also still open: the 4 master-fetch code defects logged in the entry
+below — all deliberately left alone under the "master fetch works, don't touch it"
+principle.
+
+
 ## 2026-08-26 — DECISION: migrate all repos OFF OneDrive (deferred to a quiet market period)
 
 **Decided (Lou, 2026-08-26):** every repo moves out of the OneDrive sync root to a
