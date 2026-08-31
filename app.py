@@ -15,7 +15,10 @@ OPT_FILE     = BASE_DIR / 'data' / 'options_oi.csv'
 CSS_FILE  = BASE_DIR / 'vlm_design_system.css'
 
 app    = Flask(__name__)
-install_gate(app, gated_paths=("/",))  # VLM auth gate
+# Data routes gated: they served the same members-only data the page
+# renders, to anyone with the URL. The gate matches gated_paths by exact
+# string equality, so every route not named here stays open.
+install_gate(app, gated_paths=("/", "/api/data", "/api/latest"))  # VLM auth gate
 server = app
 
 # ── Contract code -> human label  (CTK6 -> "MAY 26") ────────────────────────────
