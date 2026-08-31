@@ -132,6 +132,15 @@ def _gate(gated_paths):
     """before_request handler. Returns None to allow, or a redirect response."""
     path = request.path
 
+    # Service-to-service caller (the VLM data gateway). It holds no browser
+    # cookie and cannot obtain one, so without this every /api/* route it reads
+    # has to stay public to anyone on the internet. Checked before the path
+    # allowlist so a gated data route stays reachable for the gateway alone.
+    # Inert until DASHBOARD_SERVICE_SECRET is set.
+    _svc = os.environ.get("DASHBOARD_SERVICE_SECRET")
+    if _svc and hmac.compare_digest(request.headers.get("X-VLM-Service", ""), _svc):
+        return None
+
     # Only the HTML entry points are gated. Everything else (/api/*, /admin,
     # /static/*, health, Dash XHRs) passes through.
     if path not in gated_paths:
