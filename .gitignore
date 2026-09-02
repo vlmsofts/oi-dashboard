@@ -11,6 +11,10 @@ __pycache__/
 *.bak2
 *.bak_*
 *.backup_*
+# hyphen form too, e.g. foo.db.bak-20260831-preDelete
+*.bak-*
+*.backup
+*~
 
 # Generated output (WhatsApp images, debug renders)
 output/
