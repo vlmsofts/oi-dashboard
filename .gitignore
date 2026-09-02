@@ -51,3 +51,7 @@ data/oi_data.csv.BEFORE_CYCLE3
 # vlm_daily_data_guard runtime artifacts (local state, never shared)
 vlm_daily_data_guard.log
 .guard_alerted_*
+
+# gateway_expiry.py disk cache: last-known-good gateway responses, refetched
+# every _FRESH_TTL_SEC -- runtime state, not source
+data/gateway_expiry_cache/

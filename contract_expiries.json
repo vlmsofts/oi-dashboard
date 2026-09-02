@@ -3,7 +3,7 @@
  "_captured": "2026-06-21",
  "_columns_futures": "FTD,LTD,FND,LND,FDD,LDD,FSD",
  "_columns_options": "OPT_FTD,OPT_LTD",
- "_note": "Authoritative ICE expiries. Cocoa/Coffee OPTION files assigned by upload-pair order (6/7 cocoa, 8/9 coffee) \u2014 confirm. Update annually from ICE.",
+ "_note": "Authoritative ICE expiries. Cocoa/Coffee OPTION files assigned by upload-pair order (6/7 cocoa, 8/9 coffee) \u2014 RESOLVED 2026-09-02: NOT swapped (CC Dec26 OPT_LTD 2026-11-13 vs KC 2026-11-12, CC Mar27 2027-02-12 vs KC 2027-02-10, cross-checked against the live VLM gateway board -- all 8 CC and 7 KC rows match their correct commodity). Since 2026-09-02 this file is a HISTORICAL FLOOR only, merged under the live gateway board in contract_dates.py -- update it only if a historical (expired) contract needs a correction; currently-listed contracts now come from the gateway and need no manual edit.",
  "products": {
   "CT": {
    "name": "Cotton No.2",

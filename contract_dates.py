@@ -1,21 +1,38 @@
 """
 contract_dates.py -- ICE-verified contract expiry dates for CT, KC, CC, SB.
 
-DATA SOURCE (since 2026-06-21): the authoritative ICE expiry dataset in
-contract_expiries.json (sibling file). That JSON is the SINGLE SOURCE OF TRUTH.
-The annual refresh updates ONLY that file -- no code change is needed yearly.
+DATA SOURCE (since 2026-09-02): the live VLM gateway expiry board
+(GET /v1/expiry/{CMD}/{futures|options}, see gateway_expiry.py), MERGED with
+contract_expiries.json (sibling file) as a HISTORICAL FLOOR. The gateway is
+live-listed-only -- it drops contracts once they roll off (confirmed:
+?include_expired=true still returns expired_row_count=0) -- so a contract that
+has since expired would go BLANK on a gateway-only repoint. The JSON floor
+exists precisely to keep those historical lookups (e.g. options_oi.csv rows
+from prior sessions) resolving. On any overlapping contract the gateway wins
+(fresher/authoritative); the JSON only fills in codes the gateway no longer
+lists. A newly-listed contract (e.g. a fresh Jan-out serial) now resolves
+immediately from the gateway with no manual JSON edit needed; the JSON still
+needs its periodic refresh only to keep the historical floor from going stale
+relative to the gateway's own history (it never will for currently-live
+contracts, since those come from the gateway).
 
-What this module builds from the JSON, once, at import time:
+What this module builds, once, at import time:
   _D          : {ICE_CODE_4CHAR: {'fnd': date, 'ltd': date, 'opt_exp': date}}
                 fnd / ltd come from the FUTURES record; opt_exp is the OPTION
                 LTD (OPT_LTD) of the option whose contract code matches the
                 futures code (commodity + month-code + year). opt_exp drives the
-                Black-76 time-to-expiry in vlm_master_fetch.py.
+                Black-76 time-to-expiry in vlm_master_fetch.py. Built from the
+                JSON floor, then gateway rows are merged on top (gateway wins).
   _BBG_TO_ICE : {BBG_GENERIC_SLOT: ICE_CODE_4CHAR} resolved DYNAMICALLY from
                 today's date using the proven nearest-unexpired rule (folded in
                 from contract_resolver_proposed.py). Replaces the old static,
                 hand-stamped table that went stale and blanked Greeks.
   ice_to_bbg  : reverse of _BBG_TO_ICE (ICE code -> BBG generic slot).
+
+GATEWAY UNAVAILABLE (bad key, network down, shape break): fetch_rows() from
+gateway_expiry.py returns [] and logs loudly (gateway_expiry.log); _D then
+degrades to the JSON floor exactly as before this change -- never a crash,
+never a fabricated date.
 
 ICE code form used throughout this module and by both consumers: 4 chars,
 {COMM}{MONTH_CODE}{YEAR_DIGIT} e.g. CTN6, CTZ7, KCN7.
@@ -46,6 +63,8 @@ ICE expiry page URLs (provenance of the JSON):
 import json
 import os
 from datetime import date
+
+import gateway_expiry
 
 # -- Month code <-> name/token tables -----------------------------------------
 _MON_CODE_TO_NAME = {
@@ -199,8 +218,68 @@ def _build_calendar_from_json(path):
     return out
 
 
+def _merge_gateway_rows(base):
+    """
+    Merge live gateway rows (gateway_expiry.fetch_rows) on top of `base` (the
+    JSON floor from _build_calendar_from_json). Gateway wins on any overlapping
+    4-char ICE code -- it is fresher/authoritative for currently-listed
+    contracts. The JSON floor is untouched for any code the gateway does not
+    (or can no longer) list, e.g. an expired contract still referenced by a
+    historical options_oi.csv row -- the gateway board is LIVE-LISTED ONLY.
+
+    Never raises: gateway_expiry.fetch_rows() itself never raises and returns
+    [] on any failure (bad key, network down, cache miss), in which case this
+    function is a no-op and `base` is returned unchanged -- the JSON-only
+    behaviour from before this change, preserved exactly.
+    """
+    out = dict(base)  # shallow copy; entries are replaced, never mutated in place
+
+    for comm in ('CT', 'CC', 'KC', 'SB'):
+        # Futures rows -> fnd/ltd.
+        try:
+            fut_rows = gateway_expiry.fetch_rows(comm, 'futures')
+        except Exception as e:
+            _warn('gateway_expiry.fetch_rows(' + comm + ', futures) raised ' +
+                  repr(e) + ' -- skipping gateway futures merge for ' + comm)
+            fut_rows = []
+        for row in fut_rows:
+            key = _to_4char(row.get('contract'))
+            if not key:
+                continue
+            fnd = _parse_iso(row.get('fnd'))
+            ltd = _parse_iso(row.get('ltd'))
+            if fnd is None and ltd is None:
+                continue
+            entry = dict(out.get(key, {}))
+            entry['fnd'] = fnd
+            entry['ltd'] = ltd
+            out[key] = entry
+
+        # Options rows -> opt_exp (the option's own LTD).
+        try:
+            opt_rows = gateway_expiry.fetch_rows(comm, 'options')
+        except Exception as e:
+            _warn('gateway_expiry.fetch_rows(' + comm + ', options) raised ' +
+                  repr(e) + ' -- skipping gateway options merge for ' + comm)
+            opt_rows = []
+        for row in opt_rows:
+            key = _to_4char(row.get('contract'))
+            if not key:
+                continue
+            opt_exp = _parse_iso(row.get('ltd'))
+            if opt_exp is None:
+                continue
+            entry = dict(out.get(key, {'fnd': None, 'ltd': None}))
+            entry['opt_exp'] = opt_exp
+            out[key] = entry
+
+    return out
+
+
 # -- Ground-truth expiry calendar (built once at import) ----------------------
-_D = _build_calendar_from_json(_JSON_PATH)
+# JSON floor first (historical coverage), then gateway rows merged on top
+# (live/authoritative, wins overlaps). See module docstring.
+_D = _merge_gateway_rows(_build_calendar_from_json(_JSON_PATH))
 
 
 # -- Dynamic Bloomberg-generic resolver (folded in from
