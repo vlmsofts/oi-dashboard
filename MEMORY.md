@@ -65,6 +65,24 @@ int end to end. `CT DEC26 200,134 + (-151) = 199,983`; `CT OCT26 167 + (-1) = 16
 The builder's own reconciliation (computed DoD vs ICE's `ice_chg`) already fails
 loudly at build time — 36/36 agree on every session checked.
 
+**AUDIT FIXES same day (210ccb8), both found by self-audit, neither live.**
+(1) `--no-send` skipped the feed AND consumed the email: the upload lived
+inside `send()`, which that flag bypasses, but the path still falls through to
+the `\Seen` mark — so the session's JSON was never published, no alert, no
+retry. `--no-send` means skip WhatsApp, not skip the machine feed, and it is a
+manual RECOVERY flag — recovery is precisely when the brief still needs the
+numbers. Split into `upload_feed()`, called BEFORE the `--no-send` gate (call
+line 371, gate 373, `\Seen` 392). `--dry-run` still `continue`s at 359, before
+the feed, so nothing is consumed. (2) `send(..., feed=None)` fired a full
+DELIVERY FAILURE banner when the argument was merely OMITTED — a false alarm on
+the one channel this module exists to keep trustworthy; `feed` is now required,
+so an omission is a TypeError at the call site. **Side effect worth keeping:
+`send()` is now byte-identical to its pre-60f79c2 form**, so the WhatsApp path
+carries ZERO diff from this feature. Neither defect could fire in production
+(startCommand has no flags; one caller) but (1) would have bitten the first
+manual recovery. LESSON: a new artifact must be published on every path that
+consumes the trigger, not just the happy path.
+
 **NEXT PIECE OF WORK — `data/prelim_inbox/` is NOT persisted on Railway.** The
 container wipe is exactly why those 9 sessions are unrecoverable, and it will
 cause the next 9. Simplest fix: upload the source CSV to R2 alongside the other
