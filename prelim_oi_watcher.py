@@ -213,35 +213,43 @@ def path_from(stdout, label):
     return None
 
 
-def send(png, session, feed=None):
-    """Reuse the proven R2 + Twilio primitives from the OI sender.
+def upload_feed(session, feed):
+    """Publish the machine-readable feed. NEVER raises, never blocks delivery.
 
-    The JSON feed is uploaded FIRST but is explicitly NON-BLOCKING: a feed
-    failure is logged loudly and delivery continues. Lou has no fallback for a
-    missing 5am PNG; the 6am brief HAS one -- it compares the feed's
+    `feed` is REQUIRED, not defaulted: a default of None would let a caller
+    that simply omitted the argument fire the DELIVERY FAILURE banner below,
+    a false alarm on the one channel this module exists to keep trustworthy.
+
+    Separated from send() so it runs regardless of --no-send. It is the only
+    thing the 6am brief can read, and a feed failure must never stop Lou's
+    5am PNG: he has no fallback, the brief HAS one -- it compares the feed's
     session_date against the newest session it already holds and reports
     "prelim not available" on its own. Blocking a human report to protect a
     machine feed that can already tell when it is blind is the wrong trade
     (decided 2026-09-07).
-
-    Returns the WhatsApp result unchanged, so the caller's gating is untouched.
     """
-    sys.path.insert(0, str(BASE_DIR))
-    import send_oi_whatsapp as s
-
-    if feed and feed.exists():
-        try:
-            s.upload_prelim_feed(feed)
-        except Exception as e:
-            alert_failure(f'prelim JSON feed upload FAILED ({e!r}) for session '
-                          f'{session} — the PNG and WhatsApp still went out, but '
-                          f'the 6am brief will see a STALE feed and will report '
-                          f'prelim unavailable. Fix before tomorrow 05:00.')
-    else:
+    if not (feed and feed.exists()):
         alert_failure(f'prelim JSON feed MISSING for session {session} '
                       f'(builder did not report a JSON path) — PNG delivery '
                       f'continues; the 6am brief will see a STALE feed.')
+        return False
+    try:
+        sys.path.insert(0, str(BASE_DIR))
+        import send_oi_whatsapp as s
+        s.upload_prelim_feed(feed)
+        return True
+    except Exception as e:
+        alert_failure(f'prelim JSON feed upload FAILED ({e!r}) for session '
+                      f'{session} — the PNG and WhatsApp still go out, but the '
+                      f'6am brief will see a STALE feed and will report prelim '
+                      f'unavailable. Fix before tomorrow 05:00.')
+        return False
 
+
+def send(png, session):
+    """Reuse the proven R2 + Twilio primitives from the OI sender."""
+    sys.path.insert(0, str(BASE_DIR))
+    import send_oi_whatsapp as s
     urls = s.upload_to_r2([str(png)], session)
     return s.send_whatsapp_image(urls[0], f'ICE PRELIM OI — {session}', session)
 
@@ -353,9 +361,18 @@ def main():
             _in_flight = None
             continue
 
+        # The feed upload sits OUTSIDE the --no-send gate on purpose.
+        # --no-send means "skip WhatsApp", not "skip the machine feed", and it
+        # falls through to the \Seen mark below -- so gating the feed on it
+        # would consume the email while silently never publishing that
+        # session's JSON, with no alert and no retry. --no-send is a manual
+        # RECOVERY flag, and recovery is exactly when the 6am brief still
+        # needs the numbers.
+        upload_feed(session, feed)
+
         if not args.no_send:
             try:
-                if send(png, session, feed):
+                if send(png, session):
                     log(f'  WhatsApp sent for {session}')
                 else:
                     log('  WhatsApp send FAILED — leaving unread for retry')
