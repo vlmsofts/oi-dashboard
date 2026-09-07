@@ -1,5 +1,75 @@
 # Open interest dashboard — MEMORY
 
+## 2026-09-07 — SHIPPED: prelim OI JSON feed for the 6am brief (60f79c2)
+
+**Shipped.** `build_prelim_oi.py` now serializes the same numbers it renders to
+a PNG into `output/prelim/prelim_oi_<session>.json`, and the watcher uploads it
+to ONE fixed public key, `oi/prelim_latest.json`, overwritten every run. The 6am
+cotton brief runs in a cloud container with no credentials, so R2 is its only
+reachable source; previously the numbers were computed, rasterized, and thrown
+away. Railway deploy 5e224298 SUCCESS on Dockerfile.prelim (build log checked —
+NOT the RAILPACK trap of 2026-08-26), new container polls clean.
+
+**Why one file and not a dated series.** The consumer reads at send time, prints,
+and stores nothing. Prelim history has NO reader; the dated PNGs are the archive.
+An earlier spec called for dated JSON + a byte-identical `latest.json` written
+last — that requirement is VOID. It would have created a second copy of prelim
+with no analytical purpose. 8 historical sessions (08-14..08-25) WERE generated
+and verified from the preserved inbox CSVs, then deliberately left local/unshipped.
+
+**REJECTED — reconstructing the 9 Railway-era sessions from oi_data.csv.** That
+produces rows labelled `basis='prelim'` that are official numbers wearing a
+prelim label. Absent is honest; approximate-and-mislabelled is permanent poison.
+
+**REJECTED — seeding the key so the URL exists.** A 404 is a fact; a seeded file
+is a lie with a timestamp. The key stays 404 until a real run creates it with a
+real session. Consumers written against a 404 handle "missing" by construction,
+which is a state they WILL hit on real mornings.
+
+**The feed never blocks the 05:00 report.** An upload failure calls
+`alert_failure()` loudly and delivery continues. Lou has no fallback for a
+missing 5am PNG; the brief HAS one, because `session_date` lets it detect its own
+staleness. Blocking a human report to protect a machine feed that can already
+tell when it is blind is the wrong trade. JSON is written BEFORE the ~30s
+Playwright render (~10ms of json.dumps on data already in memory) so a feed
+failure exits non-zero through the EXISTING path and retries — no new branch.
+
+**`upload_to_r2()` deliberately UNTOUCHED** (send_oi_whatsapp.py is +38/-0). It
+builds a dated key and hardcodes image/png, and the live 09:35 four-commodity
+send depends on it. A suffix-keyed-dict refactor was designed, then dropped:
+`upload_prelim_feed()` as a separate function keeps the daily send out of the
+blast radius entirely. Other repos (COT, drought, cotton_coc) define their OWN
+`upload_to_r2` — no shared import, verified.
+
+**`build_html()` and `build_feed()` cannot drift**: both take the identical
+`(report_date, built, baselines)` from ONE calculation. Verified all 41 row
+values + 4 totals in the feed appear in the rendered page.
+
+**null vs 0 is load-bearing.** null = no official baseline (change UNKNOWN);
+0 = a real measured no-change. The 08-25 feed carries 5 nulls and 4 real zeros.
+Emitting 0 for null fabricates a fact. October is NOT filtered — feed stays
+faithful to source, consumer applies desk rules.
+
+**Timing measured, not intended (16 sessions, from R2 Last-Modified — Railway
+logs retain only ~3 days).** Median 05:05 ET, earliest 04:50, latest 08:54. 14 of
+16 before 06:00. Both misses were MONDAYS AFTER A LONG WEEKEND (08-17 at 08:54,
+09-07 at 07:40). That is a SCHEDULE, ~10/yr, not a tail risk. No heroics — the
+brief reports "prelim unavailable" and quotes official WITH ITS DATE. This is why
+the feed exists: on 2026-09-07 a competing note quoted 188,822 for CT Dec26 as
+Friday's. It was Thursday's. Friday was 190,171 (+1,349) — right number, wrong
+day, inverted conclusion.
+
+**Verified against LIVE gateway official data** (session 08-25): official at the
+DoD baseline + dod == prelim for all 36 contracts with a baseline, 0 mismatches,
+int end to end. `CT DEC26 200,134 + (-151) = 199,983`; `CT OCT26 167 + (-1) = 166`.
+The builder's own reconciliation (computed DoD vs ICE's `ice_chg`) already fails
+loudly at build time — 36/36 agree on every session checked.
+
+**NEXT PIECE OF WORK — `data/prelim_inbox/` is NOT persisted on Railway.** The
+container wipe is exactly why those 9 sessions are unrecoverable, and it will
+cause the next 9. Simplest fix: upload the source CSV to R2 alongside the other
+artifacts, reusing the path touched here. Deliberately NOT bundled into this change.
+
 ## 2026-08-26 — Tier 1 SHIPPED: vlm_daily_data_guard.py (504e373)
 
 **Shipped.** New standalone `vlm_daily_data_guard.py` + scheduled task
