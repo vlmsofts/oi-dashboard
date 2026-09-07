@@ -3,6 +3,30 @@
 > Log approaches that took >2 attempts or a user correction. Check this before
 > suggesting approaches to similar problems.
 
+## 2026-09-07 — Declared 9 sessions "unrecoverable" without reading the source
+
+**What didn't work:** seeing `data/prelim_inbox/` empty on the Railway container
+and concluding the source CSVs were GONE. They were not. `find_messages()` only
+marks `\Seen` and NEVER deletes, so every triggering email was still sitting in
+the INBOX with its attachment. Verified after the fact by IMAP: 18 messages match
+the subject token and all 8 "lost" sessions are present with intact CSVs.
+
+**Why it survived so long:** the inference was plausible — the container wipe IS
+real, and it DID destroy the local copies — so nothing about it felt like a
+guess. It was then written into MEMORY.md as established fact in TWO separate
+commits, and used to justify a whole follow-up work item (CSV-to-R2 persistence)
+that was never needed. Lou killed it in four words: "i already email it daily."
+
+**What worked instead:** actually connecting to the mailbox and searching it. One
+tool call. It was available the entire time.
+
+**Note for next time:** an absent LOCAL artifact is evidence about that artifact
+and NOTHING ELSE. It is never evidence about the upstream source. Before writing
+"lost", "gone", or "unrecoverable" into a memory file — where it will be trusted
+later and is expensive to unwind — go read the source that produced it. This is
+the same class as the 2026-07-20 "stalled backfill" false alarm: both were
+absence-of-evidence read as evidence-of-absence, and both cost real work.
+
 ## 2026-08-25 — "Watcher failed" that was actually a missed trigger
 
 **What didn't work:** treating a reported prelim-watcher failure as a watcher/

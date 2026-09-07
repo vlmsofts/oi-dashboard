@@ -17,9 +17,12 @@ last — that requirement is VOID. It would have created a second copy of prelim
 with no analytical purpose. 8 historical sessions (08-14..08-25) WERE generated
 and verified from the preserved inbox CSVs, then deliberately left local/unshipped.
 
-**REJECTED — reconstructing the 9 Railway-era sessions from oi_data.csv.** That
+**REJECTED — reconstructing the Railway-era sessions from oi_data.csv.** That
 produces rows labelled `basis='prelim'` that are official numbers wearing a
 prelim label. Absent is honest; approximate-and-mislabelled is permanent poison.
+(The premise that they were otherwise unrecoverable turned out to be WRONG —
+see the correction at the end of this entry. The reasoning stands; the need
+for it does not.)
 
 **REJECTED — seeding the key so the URL exists.** A 404 is a fact; a seeded file
 is a lie with a timestamp. The key stays 404 until a real run creates it with a
@@ -83,10 +86,30 @@ carries ZERO diff from this feature. Neither defect could fire in production
 manual recovery. LESSON: a new artifact must be published on every path that
 consumes the trigger, not just the happy path.
 
-**NEXT PIECE OF WORK — `data/prelim_inbox/` is NOT persisted on Railway.** The
-container wipe is exactly why those 9 sessions are unrecoverable, and it will
-cause the next 9. Simplest fix: upload the source CSV to R2 alongside the other
-artifacts, reusing the path touched here. Deliberately NOT bundled into this change.
+**CORRECTED — NOTHING WAS EVER LOST. THE MAILBOX IS THE ARCHIVE OF RECORD.**
+This entry originally claimed the Railway-era sessions were "unrecoverable"
+because `data/prelim_inbox/` is not persisted, and listed CSV-to-R2 persistence
+as the next piece of work. **BOTH CLAIMS WERE FALSE.** `find_messages()` only
+ever marks `\Seen` — it NEVER deletes — so every triggering email is still in
+the INBOX with its CSV attached. Verified by IMAP: 18 messages match the subject
+token, and all 8 supposedly-lost sessions (08-26, 08-27, 08-28, 08-31, 09-01,
+09-02, 09-03, 09-04) are PRESENT with intact CSVs (11.7-12.4KB each, UIDs
+367470-368846). The container wipe destroys a CACHE, not the source.
+
+Consequence: the prelim_inbox persistence work is CANCELLED — it would be a
+third copy of data already durable in Gmail. And the earlier "do not
+reconstruct those 9 from oi_data.csv" decision, while still correct on its own
+terms (approximating prelim from official = permanent mislabelled poison), is
+MOOT: the real CSVs are available, so any future backfill would be genuine, not
+approximated. There is still no reader for prelim history, so still no reason.
+
+**HOW THE ERROR HAPPENED — the lesson worth keeping.** An empty
+`output/prelim/` on the container was reasoned FORWARD into "the source data is
+gone", and that inference was written into this file AS FACT, twice, without
+ever checking the upstream source. It survived because it sounded like a
+plausible consequence of a real thing (the wipe IS real). Lou caught it with
+four words: "i already email it daily." **A missing local artifact is evidence
+about the artifact, never about its source — go read the source.**
 
 ## 2026-08-26 — Tier 1 SHIPPED: vlm_daily_data_guard.py (504e373)
 
