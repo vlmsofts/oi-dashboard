@@ -67,6 +67,44 @@ def upload_to_r2(png_paths, as_of):
     return public_urls
 
 
+def upload_prelim_feed(json_path):
+    """PUT the prelim OI feed at a FIXED key, overwritten every run.
+
+    Separate from upload_to_r2() on purpose, and deliberately NOT a
+    generalisation of it. upload_to_r2 builds a DATED key (oi/<as_of>/<name>)
+    and hardcodes image/png; this needs a fixed key and application/json, and
+    upload_to_r2 is on the live 09:35 four-commodity send path. Leaving that
+    function completely untouched keeps the daily send out of this change's
+    blast radius entirely.
+
+    Fixed key because r2.dev serves no directory index: a consumer that had to
+    guess the session date would guess wrong on every holiday and long weekend
+    (2026-09-07 is the case in point -- at 6am Monday the newest session was
+    Friday). The feed carries session_date so the reader can tell whether what
+    it just fetched is current.
+    """
+    s3 = boto3.client(
+        's3',
+        endpoint_url          = f'https://{CF_ACCOUNT_ID}.r2.cloudflarestorage.com',
+        aws_access_key_id     = R2_ACCESS_KEY_ID,
+        aws_secret_access_key = R2_SECRET_KEY,
+        config                = Config(signature_version='s3v4'),
+        region_name           = 'auto',
+    )
+    key = 'oi/prelim_latest.json'
+    s3.upload_file(
+        str(json_path), R2_BUCKET, key,
+        # no-cache: the object is overwritten in place each morning, and a
+        # cached copy served to the 6am brief would be indistinguishable from
+        # a genuinely stale session.
+        ExtraArgs={'ContentType': 'application/json',
+                   'CacheControl': 'no-cache, max-age=0'},
+    )
+    url = f'{R2_PUBLIC_BASE}/{key}'
+    print(f'  R2 uploaded: {key}')
+    return url
+
+
 # ── WhatsApp Send ─────────────────────────────────────────────────────────────
 def send_whatsapp_image(url, commodity_name, as_of):
     api_url = f'https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json'

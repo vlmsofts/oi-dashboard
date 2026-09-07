@@ -37,7 +37,7 @@ OFFICIAL OI SOURCE (load_official()):
 """
 
 import csv, argparse, json, os, pathlib, re, sys, time, urllib.error, urllib.request
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 BASE_DIR = pathlib.Path(__file__).parent
 OI_FILE  = BASE_DIR / 'data' / 'oi_data.csv'
@@ -332,6 +332,59 @@ def build_rows(prelim, ice_chg, by_date, baselines):
     return result
 
 
+# ── JSON feed ────────────────────────────────────────────────────────────────
+# Machine-readable twin of the PNG, for the 6am cotton brief. The brief runs in
+# a cloud container with no credentials and no access to this machine, so R2 is
+# its only reachable source; until now the numbers were rendered to a raster and
+# thrown away.
+#
+# Faithful to source, rules applied downstream: ICE's own "DEC26" casing,
+# October included, nothing filtered. None (never 0) where no official baseline
+# exists -- "no change" and "no baseline" are different facts and a consumer
+# must be able to tell them apart.
+#
+# session_date is what makes this safe to read. The brief compares it against
+# the newest session it already holds; if this file is older, prelim has not
+# landed yet and the brief says so rather than quoting an older session as if
+# it were current. That distinction is the whole point of the feed -- see the
+# 2026-09-07 Monday-holiday case, where prelim arrived at 07:40 ET.
+JSON_WINDOWS = {'DoD': 'dod', 'WoW': 'wow', 'MoM': 'mom'}
+
+
+def build_feed(report_date, built, baselines):
+    """Serialize build_rows() output. Pure function of data already in memory."""
+    return {
+        'session_date': report_date,
+        'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'basis': 'prelim',
+        'baselines': {j: baselines.get(k) for k, j in JSON_WINDOWS.items()},
+        'rows': [
+            {'commodity': comm, 'month': r['month'], 'open_interest': r['oi'],
+             # .get(), not [] -- a KeyError here would exit non-zero and stop
+             # the morning's PNG for a missing dict key. A null in the feed is
+             # always preferable to no feed and no report.
+             **{j: r['chg'].get(k) for k, j in JSON_WINDOWS.items()},
+             'ice_chg': r['ice_chg']}
+            for comm in COMMODITIES if comm in built
+            for r in built[comm]['rows']
+        ],
+        'totals': [
+            {'commodity': comm,
+             'open_interest': built[comm]['total_oi'],
+             **{j: built[comm]['total_chg'].get(k) for k, j in JSON_WINDOWS.items()},
+             # partial mirrors the page's asterisk: the change columns sum only
+             # contracts that have an official baseline. Collapsed for the
+             # common case, kept per-window because derivable is not stated.
+             'partial': any(built[comm]['partial'].values()),
+             'partial_by_window': {j: built[comm]['partial'].get(k)
+                                   for k, j in JSON_WINDOWS.items()},
+             'excluded': {j: built[comm]['excluded'].get(k)
+                          for k, j in JSON_WINDOWS.items()}}
+            for comm in COMMODITIES if comm in built
+        ],
+    }
+
+
 # ── Rendering ────────────────────────────────────────────────────────────────
 # VLM PNG Master Palette (see 'VLM PNG Master pallate.md') -- these exact hexes
 # are the house standard; do not substitute near-variants.
@@ -618,6 +671,16 @@ def main():
     stem = f'prelim_oi_{report_date}'
     html = build_html(report_date, built, baselines, src.name)
     (OUT_DIR / f'{stem}.html').write_text(html, encoding='utf-8')
+
+    # JSON BEFORE the PNG, deliberately: ~10ms of json.dumps on data already in
+    # memory against a ~30s Playwright render. If the feed cannot be written the
+    # build exits non-zero through the normal path and the watcher retries on the
+    # next 5-minute poll -- no new branch, and a PNG is never delivered for a
+    # session whose feed failed to write.
+    feed_path = OUT_DIR / f'{stem}.json'
+    feed_path.write_text(json.dumps(build_feed(report_date, built, baselines),
+                                    indent=2), encoding='utf-8')
+    print(f'JSON        : {feed_path}')
 
     if not args.no_png:
         p = render_png(html, OUT_DIR / f'{stem}.png')

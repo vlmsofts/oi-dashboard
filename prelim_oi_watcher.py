@@ -197,10 +197,51 @@ def session_from(stdout):
     return None
 
 
-def send(png, session):
-    """Reuse the proven R2 + Twilio primitives from the OI sender."""
+def path_from(stdout, label):
+    """Pull a path the builder PRINTED, rather than reconstructing its name.
+
+    The PNG is still located by filename convention (see main), but the JSON
+    feed is parsed from the builder's own output so the two files cannot drift
+    apart. Reconstruction would fail SILENTLY if the builder's stem ever
+    changed: the PNG would keep arriving and looking normal while the feed
+    quietly stopped -- exactly the class of failure this module exists to
+    eliminate.
+    """
+    for ln in stdout.splitlines():
+        if ln.startswith(label):
+            return pathlib.Path(ln.split(':', 1)[1].strip())
+    return None
+
+
+def send(png, session, feed=None):
+    """Reuse the proven R2 + Twilio primitives from the OI sender.
+
+    The JSON feed is uploaded FIRST but is explicitly NON-BLOCKING: a feed
+    failure is logged loudly and delivery continues. Lou has no fallback for a
+    missing 5am PNG; the 6am brief HAS one -- it compares the feed's
+    session_date against the newest session it already holds and reports
+    "prelim not available" on its own. Blocking a human report to protect a
+    machine feed that can already tell when it is blind is the wrong trade
+    (decided 2026-09-07).
+
+    Returns the WhatsApp result unchanged, so the caller's gating is untouched.
+    """
     sys.path.insert(0, str(BASE_DIR))
     import send_oi_whatsapp as s
+
+    if feed and feed.exists():
+        try:
+            s.upload_prelim_feed(feed)
+        except Exception as e:
+            alert_failure(f'prelim JSON feed upload FAILED ({e!r}) for session '
+                          f'{session} — the PNG and WhatsApp still went out, but '
+                          f'the 6am brief will see a STALE feed and will report '
+                          f'prelim unavailable. Fix before tomorrow 05:00.')
+    else:
+        alert_failure(f'prelim JSON feed MISSING for session {session} '
+                      f'(builder did not report a JSON path) — PNG delivery '
+                      f'continues; the 6am brief will see a STALE feed.')
+
     urls = s.upload_to_r2([str(png)], session)
     return s.send_whatsapp_image(urls[0], f'ICE PRELIM OI — {session}', session)
 
@@ -299,6 +340,7 @@ def main():
 
         session = session_from(out)
         png = OUT_DIR / f'prelim_oi_{session}.png' if session else None
+        feed = path_from(out, 'JSON')
         if not (png and png.exists()):
             log(f'  built but PNG missing ({png}) — leaving unread')
             alert_failure(f'build reported success but PNG is missing '
@@ -313,7 +355,7 @@ def main():
 
         if not args.no_send:
             try:
-                if send(png, session):
+                if send(png, session, feed):
                     log(f'  WhatsApp sent for {session}')
                 else:
                     log('  WhatsApp send FAILED — leaving unread for retry')
