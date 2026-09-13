@@ -59,8 +59,18 @@ The spec pages (this file) give the RULE; the `/expiry` links give the actual da
   (G, J, **M**, Q, **U**, X, **Z**) — near-continuous; NOTE Sep(U), Dec(Z) are SERIAL for sugar.
 - **Serial → underlying (VERBATIM):** "For the January regular option, the March contract is the
   underlying future. For serial options, the underlying future is the next Regular futures
-  contract month." → each serial settles into the next regular month (Jun→Jul(N), Feb→Mar(H),
-  Apr→May(K), Aug/Sep→Oct(V), Nov/Dec→Jan-next(F)).
+  contract month." → each serial settles into the next regular **FUTURES** month (Jun→Jul(N),
+  Feb→Mar(H), Apr→May(K), Aug/Sep→Oct(V), **Nov/Dec→Mar-next-yr(H)**).
+  > ⚠️ **CORRECTED 2026-09-12.** This line read "Nov/Dec→Jan-next(F)" and was WRONG. The rule
+  > says the next Regular **FUTURES** contract month — and **SB has no January future**. The
+  > futures series is H/K/N/V only. January is a regular *option* month with no future behind
+  > it, which is precisely why the spec gives it its own sentence sending it to March; the same
+  > logic sends Nov/Dec there too. Verified against ice.com/products/23/Sugar-No-11-Futures/expiry
+  > (month letters H, K, N, V) and the VLM gateway `/v1/expiry/SB/futures` (12 rows, H/K/N/V,
+  > `stale=false`). The dated calendar proves it alone: the SBX26 option (LTD 2026-10-15) and
+  > SBZ26 option (LTD 2026-11-16) both OUTLIVE the SBV26 future (LTD 2026-09-30), so October
+  > cannot underlie them — the next living future is SBH27 (LTD 2027-02-26).
+  > This error had propagated into `vlm_daily_brief/commodity.py`, fixed in the same change.
 - **LTD:** "**15th calendar day of the month that precedes the options trading month**, or the
   first business day after the 15th if that is a weekend/Exchange holiday." 17:00 ET; auto-exercise.
 - **Strike increment:** $0.25 cents at all levels.
@@ -84,9 +94,18 @@ The spec pages (this file) give the RULE; the `/expiry` links give the actual da
 | CT | F,U,X | F→H, U→Z, X→Z (explicit) |
 | CC | F,G,J,M,Q,V,X | → next regular (H/K/N/U/Z) |
 | KC | F,G,J,M,Q,V,X | → next regular (H/K/N/U/Z) |
-| SB | G,J,M,Q,U,X,Z | → next regular (H/K/N/V/F) |
+| SB | G,J,M,Q,U,X,Z | → next regular **FUTURES** month (H/K/N/V) — **X,Z→H-next-yr**, never F |
 
 Month codes: F=Jan G=Feb H=Mar J=Apr K=May M=Jun N=Jul Q=Aug U=Sep V=Oct X=Nov Z=Dec.
+
+> ⚠️ **The SB row said `(H/K/N/V/F)` until 2026-09-12 and that was the root of a live defect.**
+> "Next regular" means next regular **FUTURES** month, not next regular **OPTION** month. For
+> CT/CC/KC those two sets are identical, so the shorthand works and the error stays invisible.
+> For **SB they differ**: January and October are regular *option* months, but the futures series
+> is **H/K/N/V** — there is no January (and no December) sugar future. Reading this table against
+> the option months sent SB Nov/Dec serials to a contract that does not exist, and that wrong
+> answer was copied into `vlm_daily_brief/commodity.py`, where it sat until 2026-09-12.
+> **When a mapping is in question, read the FUTURES expiry calendar, not the option month list.**
 
 ---
 
